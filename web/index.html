@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>通院の行き帰り デマンド予約</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="pane">
+    <header>
+      <h1>通院の行き帰り デマンド予約</h1>
+      <p class="lead">行きも帰りも、いっしょに予約します。帰りは<strong>診察がのびても間に合う便</strong>を選べて、待つあいだに近くで過ごす場所まで出します。</p>
+      <p class="svc" id="svc"></p>
+    </header>
+
+    <form id="form" class="card" onsubmit="return false">
+      <label>運行日<select id="day"></select></label>
+      <label>出発地（家の近くの乗り場）<select id="orig"></select></label>
+      <label>病院<select id="hosp"></select></label>
+      <div class="row2">
+        <label>病院に着きたい時刻<select id="arr"></select></label>
+        <label>診察にかかる時間<select id="dur"></select></label>
+      </div>
+      <label>診察の時間の幅（待ってもよい時間）<select id="wid"></select></label>
+      <p class="hint" id="hint"></p>
+      <button type="submit" id="go">便をさがす</button>
+    </form>
+
+    <section id="out" hidden>
+      <h2><span class="ic ic-van"></span>行きの便</h2>
+      <p class="sub" id="out-sub"></p>
+      <div id="out-list" class="list"></div>
+    </section>
+
+    <section id="back" hidden>
+      <h2><span class="ic ic-home-variant"></span>帰りの便</h2>
+      <p class="sub" id="back-sub"></p>
+      <div id="back-list" class="list"></div>
+    </section>
+
+    <section id="confirm" hidden class="card confirm">
+      <div id="confirm-text"></div>
+      <button id="book">この内容で予約する</button>
+    </section>
+
+    <section id="booked" hidden class="card booked">
+      <div id="booked-text"></div>
+      <button id="watch" class="sub-btn">自分の便を地図で見る</button>
+      <button id="reset" class="sub-btn ghost">予約を取り消す</button>
+    </section>
+
+    <footer class="credit" id="credit"></footer>
+  </aside>
+
+  <main class="mapwrap">
+    <div id="map"></div>
+    <div class="hud">
+      <div class="clock"><span class="ic ic-clock-outline"></span><span id="clock">8:00</span></div>
+      <div class="speed" id="speed"></div>
+      <button id="pp" class="pp" aria-label="一時停止"><span class="ic ic-pause"></span></button>
+    </div>
+    <div class="legend" id="legend"></div>
+  </main>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="engine.js"></script>
+<script src="planner.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
