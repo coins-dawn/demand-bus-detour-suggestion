@@ -10,7 +10,7 @@ python3.9 scripts/build_data.py            # web/data/kawagoe.json
 python3.9 scripts/build_data.py --geom     # ＋ 停留所間の道路の形 web/data/geom_*.json（OSRM が要る）
 
 # 2. 配信して開く
-cd web && python3 -m http.server 8006       # http://localhost:8006/
+python3 scripts/serve.py                     # http://localhost:8004/（ポートは引数で変えられる）
 ```
 
 URL に `?t=09:00` を付けると、その時刻から再生します。`&paused` を付けると止まった状態で開きます。
