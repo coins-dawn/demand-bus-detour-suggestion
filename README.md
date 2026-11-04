@@ -34,7 +34,7 @@ URL に `?t=09:00` を付けると、その時刻から再生します。`&pause
 
 - `web/engine.js` … 配車の計算（車 1 台・挿入法）。ブラウザでも Node でも動く
 - `web/planner.js` … 便の候補を作る
-- `web/app.js` … 画面と地図（MapLibre GL JS ＋ 地理院タイル）
+- `web/app.js` … 画面と地図（MapLibre GL JS ＋ OpenFreeMap）
 - `scripts/build_data.py` … 画面が読むデータを作る
 - `scripts/shot.py` … 画面を撮る（Playwright）
 - `tests/` … `node tests/replay.test.js`、`node tests/planner.test.js`
@@ -44,7 +44,7 @@ URL に `?t=09:00` を付けると、その時刻から再生します。`&pause
 - デマンド交通データ（GTFS-Flex・需要情報）: 公共交通オープンデータセンター、CC BY 4.0。
   事業者・提供元は画面の下に表示している
 - 周辺の場所・道路: © OpenStreetMap contributors（ODbL）
-- 地図: 国土地理院 地理院タイル
+- 背景地図: OpenFreeMap（© OpenMapTiles、© OpenStreetMap contributors）
 - アイコン: Material Design Icons（Iconify 経由、Apache License 2.0）
 
 `web/data/` はデータの規約に合わせて git に入れていない。

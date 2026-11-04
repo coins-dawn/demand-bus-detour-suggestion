@@ -301,7 +301,7 @@ function book() {
 function watch() {
   if (!S.booked) return;
   S.t = S.booked.w1.tp - 15 * 60;
-  setSpeed(30);
+  setSpeed(60);
   S.playing = true; ppIcon();
   fitTo([S.booked.q.o, S.booked.q.h]);
 }
@@ -416,16 +416,28 @@ async function icon(name, fg, bg, size = 44, ring = null) {
   return x.getImageData(0, 0, size, size);
 }
 
+// 背景地図: OpenFreeMap の positron から、水・公園・道路・鉄道と市町の名前だけを残す
+const KEEP = new Set(["background", "park", "water", "waterway",
+  "highway_minor", "highway_major_casing", "highway_major_inner", "highway_major_subtle",
+  "highway_motorway_casing", "highway_motorway_inner", "highway_motorway_subtle", "railway",
+  "label_city", "label_town"]);
+async function baseStyle() {
+  const st = await (await fetch("https://tiles.openfreemap.org/styles/positron")).json();
+  st.layers = st.layers.filter((l) => KEEP.has(l.id)).map((l) => {
+    if (l.type === "symbol") {
+      l.layout = Object.assign({}, l.layout, { "text-field": ["coalesce", ["get", "name:ja"], ["get", "name"]] });
+      l.paint = Object.assign({}, l.paint, { "text-color": "#8a939b", "text-halo-color": "#fff", "text-halo-width": 1.5 });
+    }
+    if (l.id === "railway") l.paint = Object.assign({}, l.paint, { "line-color": "#c3c8cd", "line-width": 1.2 });
+    return l;
+  });
+  return st;
+}
+
 async function initMap() {
   map = new maplibregl.Map({
     container: "map",
-    style: {
-      version: 8,
-      glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
-      sources: { gsi: { type: "raster", tiles: ["https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png"], tileSize: 256,
-        attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">地理院タイル</a>' } },
-      layers: [{ id: "gsi", type: "raster", source: "gsi" }],
-    },
+    style: await baseStyle(),
     center: [139.44, 35.9], zoom: 11.6,
   });
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
@@ -442,7 +454,7 @@ async function initMap() {
 
   map.addSource("hull", { type: "geojson", data: fc(Object.entries(d.districts).map(([g, x]) =>
     ({ type: "Feature", geometry: { type: "Polygon", coordinates: [x.hull] }, properties: { g, color: COLORS[g], name: x.name } }))) });
-  map.addLayer({ id: "hull-f", type: "fill", source: "hull", paint: { "fill-color": ["get", "color"], "fill-opacity": 0.06 } });
+  map.addLayer({ id: "hull-f", type: "fill", source: "hull", paint: { "fill-color": ["get", "color"], "fill-opacity": 0.04 } });
   map.addLayer({ id: "hull-l", type: "line", source: "hull", paint: { "line-color": ["get", "color"], "line-width": 1.5, "line-dasharray": [3, 2], "line-opacity": 0.7 } });
 
   const sf = [];
@@ -452,7 +464,7 @@ async function initMap() {
     "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 1.6, 15, 4], "circle-color": "#fff",
     "circle-stroke-color": ["get", "color"], "circle-stroke-width": 1.2, "circle-opacity": 0.9 } });
   map.addLayer({ id: "stops-lbl", type: "symbol", source: "stops", minzoom: 14.5, layout: {
-    "text-field": ["get", "name"], "text-size": 10, "text-offset": [0, 0.9], "text-anchor": "top", "text-font": ["Open Sans Semibold"] },
+    "text-field": ["get", "name"], "text-size": 10, "text-offset": [0, 0.9], "text-anchor": "top", "text-font": ["Noto Sans Regular"] },
     paint: { "text-color": "#495057", "text-halo-color": "#fff", "text-halo-width": 1.2 } });
 
   map.addSource("trace", { type: "geojson", data: fc([]) });
@@ -474,7 +486,7 @@ async function initMap() {
   map.addLayer({ id: "buses", type: "symbol", source: "buses", layout: {
     "icon-image": ["get", "icon"], "icon-size": ["interpolate", ["linear"], ["zoom"], 11, 0.6, 15, 0.8],
     "icon-allow-overlap": true, "text-allow-overlap": true,
-    "text-field": ["get", "label"], "text-size": 11, "text-offset": [0, 1.7], "text-font": ["Open Sans Semibold"] },
+    "text-field": ["get", "label"], "text-size": 11, "text-offset": [0, 1.7], "text-font": ["Noto Sans Bold"] },
     paint: { "text-color": ["get", "color"], "text-halo-color": "#fff", "text-halo-width": 1.6 } });
 
   map.addSource("me", { type: "geojson", data: fc([]) });
@@ -513,7 +525,7 @@ function legend() {
     乗降実績を配車の計算で並べ直して作成しています。</p>
     <p>本アプリケーションが利用する公共交通データは、公共交通オープンデータセンターにおいて提供されるものです。公共交通事業者により提供されたデータを元にしていますが、必ずしも正確・完全なものとは限りません。本アプリケーションの表示内容について、公共交通事業者への直接の問合せは行わないでください。</p>
     <p>便の空きは、実績の予約から計算した目安で、実際の予約の受付とは関係ありません。近くの場所と道路は © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>（ODbL）、車の所要時間は OSRM で計算。店の営業時間は確かめてください。
-    地図は国土地理院の地理院タイル。アイコンは Material Design Icons（Iconify）。</p>`;
+    背景地図は <a href="https://openfreemap.org/" target="_blank" rel="noopener">OpenFreeMap</a>（© OpenMapTiles、© OpenStreetMap contributors）。アイコンは Material Design Icons（Iconify）。</p>`;
 }
 
 async function main() {
@@ -525,9 +537,9 @@ async function main() {
   legend();
   await initMap();
   loadDay();
-  $("speed").innerHTML = [10, 30, 60, 120].map((v) => `<button data-v="${v}">${v}倍</button>`).join("");
+  $("speed").innerHTML = [60, 120, 300, 600].map((v) => `<button data-v="${v}">${v}倍</button>`).join("");
   $("speed").querySelectorAll("button").forEach((b) => b.onclick = () => setSpeed(+b.dataset.v));
-  setSpeed(60);
+  setSpeed(300);
   $("pp").onclick = () => { S.playing = !S.playing; ppIcon(); };
   $("form").onsubmit = search;
   $("book").onclick = book;
