@@ -29,26 +29,8 @@
 
   </aside>
 
-  <section class="mid" id="mid">
-   <div class="mid-info" id="mid-info">
-    <div class="mid-box cal-box">
-      <div class="verdict" id="day-verdict"></div>
-      <div class="cal-head">
-        <button id="cal-prev" class="nav" aria-label="前の月"><span class="ic ic-chevron-left"></span></button>
-        <b id="cal-title"></b>
-        <button id="cal-next" class="nav" aria-label="次の月"><span class="ic ic-chevron-right"></span></button>
-      </div>
-      <div class="cal" id="cal"></div>
-      <div class="scale" id="cal-scale"></div>
-    </div>
-    <div class="mid-box day-box">
-      <div class="verdict" id="time-verdict"></div>
-      <div class="chart" id="chart"></div>
-      <p class="note" id="chart-note"></p>
-    </div>
-   </div>
-
-   <div class="mid-res" id="mid-res" hidden>
+  <section class="mid" id="mid" hidden>
+   <div class="mid-res" id="mid-res">
     <div class="stepper" id="stepper"></div>
     <div class="res-body" id="res-body">
       <section id="v-go">
@@ -70,6 +52,27 @@
     </div>
    </div>
   </section>
+
+  <aside class="side" id="side">
+   <div class="mid-info" id="side-info">
+    <div class="mid-box cal-box">
+      <div class="verdict" id="day-verdict"></div>
+      <div class="cal-head">
+        <button id="cal-prev" class="nav" aria-label="前の月"><span class="ic ic-chevron-left"></span></button>
+        <b id="cal-title"></b>
+        <button id="cal-next" class="nav" aria-label="次の月"><span class="ic ic-chevron-right"></span></button>
+      </div>
+      <div class="cal" id="cal"></div>
+      <div class="scale" id="cal-scale"></div>
+    </div>
+    <div class="mid-box day-box">
+      <div class="verdict" id="time-verdict"></div>
+      <div class="chart" id="chart"></div>
+      <p class="note" id="chart-note"></p>
+    </div>
+   </div>
+
+  </aside>
 
   <main class="mapwrap">
     <div id="map"></div>

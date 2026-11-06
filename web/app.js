@@ -439,7 +439,8 @@ function showAll() {
 // 真ん中のペインの切り替え: info（カレンダーと棒グラフ）／go／back／all
 function setView(v) {
   S.view = v;
-  $("mid-info").hidden = v !== "info"; $("mid-res").hidden = v === "info";
+  $("mid").hidden = v === "info";
+  document.querySelector(".app").classList.toggle("res", v !== "info");
   for (const k of ["go", "back", "all"]) $("v-" + k).hidden = v !== k;
   const n = { go: 0, back: 1, all: 2 }[v];
   const can = [!!S.go, !!S.goSel && !S.go.none, !!(S.goSel && S.backSel)];
@@ -540,8 +541,9 @@ function fitTo(ids) {
 // 地図の上に浮かんでいるペインのぶん、左を空けて合わせる
 function mapPad(p) {
   if (window.innerWidth <= 900) return 50;
-  const left = parseFloat(getComputedStyle($("mid")).left) + $("mid").offsetWidth;
-  return { top: p, bottom: p + 40, left: left + p, right: p };
+  const box = $("mid").hidden ? $("form").closest(".pane") : $("mid");
+  const left = box.offsetLeft + box.offsetWidth, right = $("side").offsetWidth + 24;
+  return { top: p, bottom: p + 40, left: left + p, right: right + p };
 }
 function fitCoords(cs) {
   if (!map || !cs || !cs.length) return;
