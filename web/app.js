@@ -14,7 +14,7 @@ const GROUP_COLOR = { rest: "#a0522d", errand: "#2b8a3e", sit: "#1971c2" };
 const KIND_ICON = { cafe: "coffee", fast_food: "hamburger", restaurant: "silverware-fork-knife", supermarket: "cart",
   convenience: "store-24-hour", drug: "pill", post: "email", bank: "bank", books: "book-open-variant", bakery: "bread-slice",
   park: "tree", bench: "bench", community: "account-group", library: "library" };
-// 混み具合の 4 段階（この地区の 1 年の中での位置）
+// 混み具合の 4 段階（この地区のこの月の中での位置）
 const LV = [
   { t: "空いている", c: "#fff4e6", ink: "#8a5a00" },
   { t: "ふつう", c: "#ffd8a8", ink: "#8a4b00" },
@@ -28,8 +28,8 @@ function breakIn(a, b) {
   const br = S.data.service.breaks.find(([x, y]) => Engine.hm(x) < b && Engine.hm(y) > a);
   return br ? `${br[0]}〜${br[1]} は運転手の休憩で、車が動きません。` : "";
 }
-// 開いたときの例（2025-09-03 の実績で、10:00 ちょうどに着く便が埋まっている組）
-const DEFAULT = { date: "20250903", orig: "291", hospName: "きりむら内科医院", arr: 10 * 3600 };
+// 開いたときの例（2026-07-08 の実績で、10:00 ちょうどに着く便が埋まっている組）
+const DEFAULT = { date: "20260708", orig: "291", hospName: "きりむら内科医院", arr: 10 * 3600 };
 
 const S = {
   data: null, geom: {}, line: new Map(), eng: {}, base: {}, plans: {}, stats: {}, g: "2", cal: null,
@@ -91,22 +91,19 @@ function loadDay() {
   clearResults();
 }
 
-// ------------------------------------------------------------------ 混み具合の集計（地区ごと、1 年分）
+// ------------------------------------------------------------------ 混み具合の集計（地区ごと、ひと月分）
 function stats(g) {
   if (S.stats[g]) return S.stats[g];
-  const bins = {}, tot = {}, wdSum = {}, wdN = {};
+  const bins = {}, tot = {};
   for (const d of S.data.days) {
     const b = Array(NB).fill(0); let n = 0;
     for (const r of d.reqs[g]) { const k = Math.floor((r[2] - T0) / BIN); if (k >= 0 && k < NB) b[k] += r[4]; n += r[4]; }
     bins[d.date] = b; tot[d.date] = n;
-    wdSum[d.wd] = (wdSum[d.wd] || Array(NB).fill(0)).map((v, k) => v + b[k]); wdN[d.wd] = (wdN[d.wd] || 0) + 1;
   }
   const qs = (arr) => { const s = arr.slice().sort((a, b) => a - b); return { Q: [0.33, 0.67, 0.9].map((p) => s[Math.floor(p * (s.length - 1))]), s }; };
   const win = [];
   for (const b of Object.values(bins)) for (let k = 1; k < NB; k++) win.push(b[k - 1] + b[k]);
-  const avg = {};
-  for (const w of Object.keys(wdSum)) avg[w] = wdSum[w].map((v) => v / wdN[w]);
-  return S.stats[g] = { bins, tot, day: qs(Object.values(tot)), win: qs(win), avg };
+  return S.stats[g] = { bins, tot, day: qs(Object.values(tot)), win: qs(win) };
 }
 const level = (v, Q) => v <= Q[0] ? 0 : v <= Q[1] ? 1 : v <= Q[2] ? 2 : 3;
 // [a, a+1 時間) に乗る人の数
@@ -136,21 +133,21 @@ function renderCal() {
   }
   $("cal").innerHTML = h;
   $("cal").querySelectorAll("button.day").forEach((b) => b.onclick = () => { $("day").value = b.dataset.i; onDay(); });
-  $("cal-scale").innerHTML = LV.map((x) => `<span><i style="background:${x.c}"></i>${x.t}</span>`).join("") + `<span><i class="off"></i>記録なし</span>`;
+  $("cal-scale").innerHTML = LV.map((x) => `<span><i style="background:${x.c}"></i>${x.t}</span>`).join("") + (h.includes("day off") ? `<span><i class="off"></i>記録なし</span>` : "");
   const n = st.tot[d.date], rank = st.day.s.filter((v) => v > n).length / st.day.s.length;
   const l = level(n, st.day.Q);
   $("day-verdict").innerHTML = `<b>${+d.date.slice(4, 6)}月${+d.date.slice(6)}日（${d.wd}）</b>の${S.data.districts[S.g].name}は ${chip(l)}<br>
-    <span class="vsub">予約 ${n} 人。この 1 年で多いほうから ${Math.max(1, Math.round(rank * 100))}% の日</span>`;
+    <span class="vsub">予約 ${n} 人。この月で多いほうから ${Math.max(1, Math.round(rank * 100))}% の日</span>`;
 }
 
 // ------------------------------------------------------------------ 中のペイン: この日の時間帯ごとの予約
 function renderChart() {
-  const st = stats(S.g), d = day(), b = st.bins[d.date], avg = st.avg[d.wd];
+  const st = stats(S.g), d = day(), b = st.bins[d.date];
   const T = +$("arr").value, E = T + +$("dur").value;
   const goA = T - 3600, backA = E;
   const lgo = level(winCount(b, goA), st.win.Q), lback = level(winCount(b, backA), st.win.Q);
   const brk = S.data.service.breaks.map(([x, y]) => [Engine.hm(x), Engine.hm(y)]);
-  const max = Math.max(6, ...b, ...avg);
+  const max = Math.max(6, ...b);
   const inW = (t, a) => t >= a && t < a + 3600;
   let bars = "";
   for (let k = 0; k < NB; k++) {
@@ -165,17 +162,16 @@ function renderChart() {
     const x0 = Math.max(T0, a), x1 = Math.min(T1, a + 3600);
     return x1 > x0 ? `<span class="span ${cls}" style="left:${pc(x0)}%;width:${pc(x1) - pc(x0)}%">${label}</span>` : "";
   };
-  const line = avg.map((v, k) => `${((k + 0.5) / NB) * 100},${100 - (v / max) * 100}`).join(" ");
   $("chart").innerHTML = `
     <div class="plot"><div class="bars">${bars}</div>
-      <svg class="avg" viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points="${line}" /></svg></div>
+</div>
     <div class="spans">${tag(goA, "go", "行き")}${tag(backA, "back", "帰り")}</div>
     <div class="axis">${[8, 10, 12, 14, 16, 18].map((h) => `<span style="left:${pc(h * 3600)}%">${h}時</span>`).join("")}</div>`;
   $("time-verdict").innerHTML = `
     <div class="vrow"><span class="lab go">行き</span>${fmt(T)} に着く便 ${chip(lgo)}<span class="vsub">${fmt(goA)}〜${fmt(T)} に乗る人 ${winCount(b, goA)} 人</span></div>
     <div class="vrow"><span class="lab back">帰り</span>${fmt(E)} ごろから ${chip(lback)}<span class="vsub">${fmt(E)}〜${fmt(E + 3600)} に乗る人 ${winCount(b, backA)} 人</span></div>`;
-  $("chart-note").innerHTML = `棒は、この日の 30 分ごとに乗る人の数（実績の予約）。点線はふだんの${d.wd}曜日の平均。しま模様は運転手の休憩。
-    混み具合は、この地区の 1 年の 1 時間ごとの数の中での位置です。`;
+  $("chart-note").innerHTML = `棒は、この日の 30 分ごとに乗る人の数（実績の予約）。しま模様は運転手の休憩。
+    混み具合は、この地区のこの月の 1 時間ごとの数の中での位置です。`;
 }
 function renderMid() { renderCal(); renderChart(); }
 

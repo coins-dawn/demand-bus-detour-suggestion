@@ -153,10 +153,14 @@ def main():
 
     per_day = collections.Counter(r[0] for r in rows)
     wd = lambda d: dt.date(int(d[:4]), int(d[4:6]), int(d[6:])).weekday()
-    # 運行日はすべて入れる（カレンダーで選ぶ）。予約は [乗る, 降りる, 乗る時刻, 降りる時刻, 人数] の配列にして軽くする
+    # 運行日は、予約がいちばん多いひと月分（カレンダーで選ぶ）。予約は [乗る, 降りる, 乗る時刻, 降りる時刻, 人数] の配列にして軽くする
+    per_month = collections.Counter(r[0][:6] for r in rows)
+    month = per_month.most_common(1)[0][0]
+    print("いちばん混む月", month, per_month[month], "件")
     by_day = collections.defaultdict(list)
     for r in rows:
-        by_day[r[0]].append(r)
+        if r[0][:6] == month:
+            by_day[r[0]].append(r)
     days = []
     for d in sorted(by_day):
         reqs = collections.Counter((g, p, q, t0, t1) for (dd, g, p, q, t0, t1) in by_day[d])
