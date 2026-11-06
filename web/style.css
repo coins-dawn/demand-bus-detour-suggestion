@@ -11,9 +11,11 @@ html, body { margin: 0; height: 100%; font-family: "Hiragino Sans", "Noto Sans J
 .top h1 { font-size: 18px; margin: 0; }
 .top .about { font-size: 14px; color: var(--ink); text-decoration: none; display: inline-flex; gap: 4px; align-items: center; }
 .top .about:hover { text-decoration: underline; }
-.app { display: grid; grid-template-columns: 25% 25% 50%; height: calc(100vh - var(--head)); }
-.pane { overflow-y: auto; padding: 14px 14px 24px; border-right: 1px solid var(--line); }
-.mid { border-right: 1px solid var(--line); background: #fff; min-width: 0; min-height: 0; position: relative; }
+/* 地図を背景いっぱいに敷き、その上に左のペインと真ん中のペインを浮かべる */
+.app { position: relative; height: calc(100vh - var(--head)); --gap: 12px; --w1: 290px; --w2: 340px; --float: calc(var(--gap) * 3 + var(--w1) + var(--w2)); }
+.pane, .mid { position: absolute; top: var(--gap); bottom: var(--gap); z-index: 2; border-radius: 12px; box-shadow: 0 4px 18px rgba(0,0,0,.16); border: 1px solid rgba(0,0,0,.06); overflow: hidden; }
+.pane { left: var(--gap); width: var(--w1); bottom: auto; max-height: calc(100% - var(--gap) * 2); overflow-y: auto; padding: 12px 12px 20px; background: rgba(246,247,248,.97); }
+.mid { left: calc(var(--gap) * 2 + var(--w1)); width: var(--w2); background: rgba(255,255,255,.98); }
 .mid-info { display: grid; grid-template-rows: 50% 50%; height: 100%; }
 .mid-res { display: flex; flex-direction: column; height: 100%; background: var(--bg); }
 .mid-res[hidden], .mid-info[hidden] { display: none; }
@@ -34,7 +36,7 @@ html, body { margin: 0; height: 100%; font-family: "Hiragino Sans", "Noto Sans J
 .alllist { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 4px 12px 8px; }
 .mid-box { padding: 12px 14px; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
 .cal-box { border-bottom: 1px solid var(--line); }
-.mapwrap { position: relative; }
+.mapwrap { position: absolute; inset: 0; z-index: 1; }
 #map { position: absolute; inset: 0; }
 
 h2 { font-size: 16px; margin: 18px 0 4px; display: flex; align-items: center; gap: 6px; }
@@ -86,10 +88,10 @@ form select { display: block; width: 100%; margin-top: 4px; padding: 8px; font-s
 .mid .note { font-size: 11px; color: var(--sub); line-height: 1.5; margin: 6px 0 0; }
 
 /* 地図の上 */
-.layers { position: absolute; top: 12px; left: 12px; background: rgba(255,255,255,.96); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+.layers { position: absolute; top: 12px; left: var(--float); background: rgba(255,255,255,.96); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
 .layers-ttl { font-size: 12px; color: var(--sub); margin-bottom: 4px; display: flex; gap: 4px; align-items: center; }
 .layers label { display: flex; gap: 6px; align-items: center; padding: 2px 0; cursor: pointer; }
-.legend { position: absolute; bottom: 52px; left: 12px; background: rgba(255,255,255,.96); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 12px; line-height: 1.7; }
+.legend { position: absolute; bottom: 52px; left: var(--float); background: rgba(255,255,255,.96); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 12px; line-height: 1.7; }
 .legend .ln { display: inline-block; width: 22px; height: 5px; border-radius: 3px; margin-right: 6px; vertical-align: 2px; }
 .legend .ln.dash { background: repeating-linear-gradient(90deg, #495057 0 5px, transparent 5px 9px); }
 .legend .sub { margin: 0; font-size: 11px; }
@@ -150,9 +152,12 @@ button { font: inherit; cursor: pointer; }
 
 
 @media (max-width: 900px) {
-  .app { display: flex; flex-direction: column; height: auto; }
-  .pane, .mid { border-right: 0; }
-  .mid { grid-template-rows: auto 300px; }
+  .app { display: flex; flex-direction: column; height: auto; --float: 12px; }
+  .pane, .mid { position: static; width: auto; border-radius: 0; box-shadow: none; border: 0; border-bottom: 1px solid var(--line); overflow: visible; }
+  .mid { height: auto; }
+  .mid-res .res-body { overflow: visible; }
+  .mapwrap { position: relative; inset: auto; }
+  .mid-info { height: auto; grid-template-rows: auto 300px; }
   .cal { min-height: 260px; }
   .mapwrap { height: 70vh; }
   .top h1 { font-size: 15px; }

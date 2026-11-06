@@ -493,13 +493,19 @@ function fitTo(ids) {
   if (!map) return;
   const st = S.data.stops;
   const xs = ids.map((i) => st[i].lon), ys = ids.map((i) => st[i].lat);
-  const pad = window.innerWidth < 820 ? 50 : 110;
+  const pad = mapPad(110);
   map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: pad, maxZoom: 15, duration: 700 });
+}
+// 地図の上に浮かんでいるペインのぶん、左を空けて合わせる
+function mapPad(p) {
+  if (window.innerWidth <= 900) return 50;
+  const left = parseFloat(getComputedStyle($("mid")).left) + $("mid").offsetWidth;
+  return { top: p, bottom: p + 40, left: left + p, right: p };
 }
 function fitCoords(cs) {
   if (!map || !cs || !cs.length) return;
   const xs = cs.map((c) => c[0]), ys = cs.map((c) => c[1]);
-  const pad = window.innerWidth < 820 ? 50 : { top: 90, bottom: 120, left: 60, right: 60 };
+  const pad = mapPad(60);
   map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: pad, maxZoom: 15.5, duration: 700 });
 }
 function legend(v) {
