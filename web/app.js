@@ -352,24 +352,87 @@ function selectBack(i) {
   drawTrace();
 }
 // 経路全体（行き → 病院 → 帰り）
+// 経路全体（行き → 病院 → 帰り）を、乗換案内の結果のような縦の時系列で出す
+function routeItems(q, g, b) {
+  const items = [];
+  const node = (key, o) => {
+    const last = items[items.length - 1];
+    if (last && last.kind === "node" && last.key === key) {   // 同じ場所が続いたら 1 つにまとめる
+      if (o.dep != null) last.dep = o.dep;
+      last.subs.push(...(o.subs || []));
+      last.tags = [...new Set([...last.tags, ...(o.tags || [])])];
+      if (o.type === "hosp") { last.type = "hosp"; last.name = o.name; }
+      return last;
+    }
+    const n = Object.assign({ kind: "node", key, subs: [], tags: [], arr: null, dep: null }, o);
+    items.push(n); return n;
+  };
+  const leg = (steps, color, legName) => {
+    let boardT = null;
+    for (const st of steps) {
+      if (st.type === "board") {
+        node(st.stop, { name: sname(st.stop), dep: st.t, tags: ["乗車"], type: "stop" });
+        boardT = st.t;
+      } else if (st.type === "alight") {
+        items.push({ kind: "seg", mode: "bus", color, t0: boardT, t1: st.t, legName });
+        node(st.stop, { name: sname(st.stop), arr: st.t, tags: [st.home ? "降車（家の近く）" : "降車"], type: st.home ? "end" : "stop" });
+      } else if (st.type === "walk") {
+        if (st.sec > 0) items.push({ kind: "seg", mode: "walk", color, sec: st.sec });
+      } else if (st.type === "stay") {
+        const sp = st.spot;
+        node("spot:" + S.data.spots.indexOf(sp), { name: sp.name || sp.label, arr: st.t, dep: st.t + st.sec, type: "spot", group: sp.group,
+          tags: ["寄り道"], subs: [`<span class="c-${sp.group}"><span class="ic ic-${GROUP_ICON[sp.group]}"></span>${esc(sp.label)}で ${dur(st.sec)} 過ごす</span>`] });
+      } else if (st.type === "hospital") {
+        if (st.end) node(q.h, { name: hname(q.h), type: "hosp", subs: [], tags: [] });
+        else node(q.h, { name: hname(q.h), arr: st.t, type: "hosp", tags: ["病院"],
+          subs: (st.until - st.t > 5 * 60 ? [`待合室で ${dur(st.until - st.t)} 待つ`] : []).concat([`診察 ${fmt(q.T)}〜${fmt(q.T + q.Dur)}（見込み）`]) });
+      }
+    }
+  };
+  leg(g.steps, ME, "行き");
+  leg(b.steps, BACK, "帰り");
+  // 病院を出る時刻（帰りの最初の動きの時刻）
+  const hn = items.find((x) => x.kind === "node" && x.type === "hosp");
+  if (hn && hn.dep == null) {
+    const k = items.indexOf(hn), nx = items[k + 1];
+    if (nx && nx.kind === "seg" && nx.mode === "walk") hn.dep = q.T + q.Dur;
+    else hn.dep = b.bus.tp;
+    if (b.kind === "wait" || (b.kind === "now" && b.bus.tp - (q.T + q.Dur) > 5 * 60 && b.bus.y === q.h)) hn.subs.push(`病院で ${dur(b.bus.tp - (q.T + q.Dur))} 待つ`);
+  }
+  return items;
+}
 function showAll() {
   const q = S.q, g = S.goSel, b = S.backSel;
   setView("all");
-  const stays = [g, b].filter((x) => x.spot).map((x) => `${x === g ? "行き" : "帰り"}: ${esc(x.spot.label)}${x.spot.name ? `（${esc(x.spot.name)}）` : ""}で ${dur(x === g ? x.stay - 120 : x.stay)}`);
-  const walk = [...g.steps, ...b.steps].filter((s) => s.type === "walk").reduce((a, s) => a + s.sec, 0);
+  const items = routeItems(q, g, b);
+  const t0 = g.bus.tp, t1 = b.bus.td;
+  const walk = items.filter((x) => x.mode === "walk").reduce((a, x) => a + x.sec, 0);
+  const nSpot = items.filter((x) => x.type === "spot").length;
+  const district = S.data.districts[q.g].name;
+  const row = (x, i) => {
+    if (x.kind === "seg") {
+      if (x.mode === "bus") return `<div class="rt-seg bus"><div class="rt-t"></div><div class="rt-rail"><i style="background:${x.color}"></i></div>
+        <div class="rt-body"><div class="rt-mode" style="color:${x.color}"><span class="ic ic-van"></span>デマンドバス かわまる ${esc(district)}<span class="rt-leg" style="background:${x.color}">${x.legName}</span></div>
+        <div class="rt-mt">${fmt(x.t0)} 発 → ${fmt(x.t1)} 着（${mins(x.t1 - x.t0)}分）・予約して乗る</div></div></div>`;
+      return `<div class="rt-seg walk"><div class="rt-t"></div><div class="rt-rail"><i style="border-color:${x.color}"></i></div>
+        <div class="rt-body"><div class="rt-mode walk"><span class="ic ic-walk"></span>徒歩 ${mins(x.sec)}分</div></div></div>`;
+    }
+    const end = i === 0 || i === items.length - 1;
+    const ic = x.type === "hosp" ? "hospital-building" : x.type === "spot" ? GROUP_ICON[x.group] : end ? "home-variant" : "bus-stop";
+    const times = [x.arr != null ? `<b>${fmt(x.arr)}</b>` : "", x.dep != null && x.dep !== x.arr ? `<span>${fmt(x.dep)}</span>` : ""].filter(Boolean);
+    return `<div class="rt-node ${x.type}${end ? " end" : ""}"><div class="rt-t">${x.arr == null && x.dep != null ? `<b>${fmt(x.dep)}</b>` : times.join("")}</div>
+      <div class="rt-rail"><span class="dot ${x.type}"><span class="ic ic-${ic}"></span></span></div>
+      <div class="rt-body"><div class="rt-name">${esc(x.name)}${x.tags.map((t) => `<span class="rt-tag">${t}</span>`).join("")}</div>
+      ${x.subs.map((t) => `<div class="rt-sub">${t}</div>`).join("")}</div></div>`;
+  };
   $("all-body").innerHTML = `
-    <div class="allsum">
-      <div class="big">${fmt(g.bus.tp)} ${sname(g.bus.r.p)} で乗る → ${fmt(b.bus.td)} ${sname(b.bus.r.d)} に帰る</div>
-      <div>病院 ${hname(q.h)}：${fmt(q.T)} 着の予定、診察は ${fmt(q.T + q.Dur)} ごろまで（見込み）</div>
-      <div>帰りの便は、診察が ${dur(b.slack)} のびても間に合います</div>
-      <div>寄り道：${stays.length ? stays.join("／") : "なし"}</div>
-      <div>歩く：合わせて ${mins(walk)} 分</div>
+    <div class="rt-head">
+      <div class="rt-time">${fmt(t0)} <span class="ar">→</span> ${fmt(t1)}</div>
+      <div class="rt-dur">${dur(t1 - t0)}（病院で ${dur(q.Dur)} の診察をふくむ）</div>
+      <div class="rt-chips"><span>デマンドバス 2回</span><span>徒歩 ${mins(walk)}分</span><span>寄り道 ${nSpot}か所</span>
+        <span class="${mins(b.slack) < 15 ? "risk" : "safe"}">診察が ${dur(b.slack)} のびても帰りに間に合う</span></div>
     </div>
-    <div class="leg-h c-me"><span class="ic ic-van"></span>行き</div>
-    <div class="alllist">${stepRows(g.steps)}</div>
-    <div class="leg-h c-back"><span class="ic ic-home-variant"></span>帰り</div>
-    <div class="alllist">${stepRows(b.steps)}</div>
-    <p class="sub" style="margin-top:10px">帰りを先に押さえるので、診察のあとに電話して待つ必要がありません。</p>`;
+    <div class="rt">${items.map(row).join("")}</div>`;
   drawTrace();
   fitCoords(S.coords);
 }
@@ -382,7 +445,7 @@ function setView(v) {
   const can = [!!S.go, !!S.goSel && !S.go.none, !!(S.goSel && S.backSel)];
   $("stepper").innerHTML = [["go", "1 行きの便"], ["back", "2 帰りの便"], ["all", "3 経路全体"]].map(([k, l], i) =>
     (i ? `<span class="arrow">›</span>` : "") + `<button data-v="${k}" class="${i === n ? "on" : ""}" ${i <= n || can[i] ? "" : "disabled"}>${l}</button>`).join("") +
-    `<button class="home" data-v="info">混み具合を見る</button>`;
+    "";
   $("stepper").querySelectorAll("button").forEach((x) => x.onclick = () => {
     const to = x.dataset.v;
     if (to === "back") showBack(); else if (to === "all") showAll(); else { setView(to); drawTrace(); if (to === "go") fitCoords(S.coords); }

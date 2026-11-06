@@ -164,3 +164,35 @@ button { font: inherit; cursor: pointer; }
   .top .about { font-size: 12px; white-space: nowrap; }
   .top { padding: 0 10px; gap: 8px; }
 }
+
+/* 経路全体（乗換案内の結果ふうの縦の時系列） */
+.rt-head { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
+.rt-time { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: .5px; }
+.rt-time .ar { color: #adb5bd; font-weight: 400; margin: 0 2px; }
+.rt-dur { font-size: 13px; color: var(--sub); margin-top: 2px; }
+.rt-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.rt-chips span { font-size: 11px; font-weight: 600; background: #f1f3f5; color: var(--ink); border-radius: 4px; padding: 2px 7px; }
+.rt-chips .safe { background: #e6f4ea; color: var(--ok); } .rt-chips .risk { background: #fff4e0; color: var(--warn); }
+.rt { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px 10px 4px; margin-bottom: 14px; }
+.rt-node, .rt-seg { display: grid; grid-template-columns: 46px 30px 1fr; }
+.rt-t { text-align: right; font-size: 13px; font-variant-numeric: tabular-nums; line-height: 1.35; padding-top: 4px; display: flex; flex-direction: column; }
+.rt-t b { font-size: 15px; } .rt-t span { color: var(--sub); }
+.rt-rail { position: relative; display: flex; justify-content: center; }
+.rt-node .dot { position: relative; z-index: 1; width: 24px; height: 24px; margin-top: 2px; border-radius: 50%; background: #fff; border: 2.5px solid #495057; display: flex; align-items: center; justify-content: center; color: #495057; }
+.rt-node .dot .ic { width: 14px; height: 14px; vertical-align: 0; }
+.rt-node .dot.hosp { border-color: #c92a2a; color: #c92a2a; }
+.rt-node .dot.spot { border-color: #a0522d; color: #a0522d; }
+.rt-node.end .dot { background: #343a40; color: #fff; border-color: #343a40; }
+.rt-body { padding: 4px 0 6px 6px; min-width: 0; }
+.rt-name { font-size: 15px; font-weight: 700; line-height: 1.4; }
+.rt-tag { display: inline-block; font-size: 10px; font-weight: 600; color: var(--sub); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; margin-left: 6px; vertical-align: 2px; }
+.rt-sub { font-size: 12px; color: var(--sub); line-height: 1.5; }
+.rt-sub .ic { width: 14px; height: 14px; margin-right: 2px; }
+.rt-seg .rt-rail i { display: block; width: 8px; border-radius: 0; margin: -2px 0; }
+.rt-seg.bus .rt-rail i { min-height: 54px; }
+.rt-seg.walk .rt-rail i { width: 0; border-left: 4px dotted; min-height: 34px; }
+.rt-seg .rt-body { padding: 8px 0 8px 6px; }
+.rt-mode { font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.rt-mode.walk { color: var(--sub); font-weight: 500; }
+.rt-leg { font-size: 10px; color: #fff; border-radius: 3px; padding: 0 5px; }
+.rt-mt { font-size: 12px; color: var(--sub); margin-top: 2px; }
