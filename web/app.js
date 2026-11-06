@@ -227,9 +227,9 @@ function setDistrict(g) {
 
 // ------------------------------------------------------------------ 候補の表示
 function clearResults() {
-  for (const id of ["out", "back", "confirm"]) $(id).hidden = true;
-  if (!S.booked) $("booked").hidden = true;
+  if (S.booked) cancel();
   S.go = S.back = S.goSel = S.backSel = null;
+  setView("info");
   drawTrace();
 }
 function sname(id) { return esc((S.data.stops[id] || {}).name || id); }
@@ -306,48 +306,92 @@ function showW(k) {
   q.W = r.W;
   const go = r.go;
   S.go = go;
-  $("out").hidden = false; $("back").hidden = true; $("confirm").hidden = true;
+  S.goSel = S.backSel = null;
+  setView("go");
   $("out-sub").textContent = `${S.data.stops[o].name} → ${S.data.stops[h].name}、${fmt(q.T)} までに着く便です。`;
   if (go.none) {
     const a = go.alt || {};
     $("out-list").innerHTML = `<div class="empty">${fmt(q.T)} に間に合う便は、1 時間前までに着く便の中ではほかの予約で埋まっています。` +
       (a.earlier ? `<br>・<b>${fmt(a.earlier.td)} 着</b>（${dur(q.T - a.earlier.td)}前）の便なら取れます。` : "") +
       (a.later ? `<br>・<b>${fmt(a.later.td)} 着</b>の便なら取れます（病院の予約の時刻を動かせるなら）。` : "") + `</div>`;
-    S.goSel = S.backSel = null;
+    $("to-back").disabled = true;
     drawTrace(); return;
   }
+  $("to-back").disabled = false;
   $("out-list").innerHTML = go.opts.map((x, i) => goCard(x, i, q)).join("");
   $("out-list").querySelectorAll(".opt").forEach((b) => b.onclick = () => selectGo(+b.dataset.i));
   const sp = go.opts[0].gap > 20 * 60 ? go.opts.findIndex((x) => x.kind === "spot") : -1;
   selectGo(sp > 0 ? sp : 0);
 }
 function selectGo(i) {
-  const q = S.q;
+  if (S.goSel !== S.go.opts[i]) S.backSel = null;   // 行きを変えたら帰りは選び直し
   S.goSel = S.go.opts[i];
   $("out-list").querySelectorAll(".opt").forEach((b) => b.classList.toggle("sel", +b.dataset.i === i));
-  const end = q.T + q.Dur;
+  drawTrace();
+}
+// 帰りの候補（選んだ行きの便を入れた運行に差し込む）
+function showBack() {
+  const q = S.q, end = q.T + q.Dur;
   const back = q.P.inbound(S.goSel.bus.plan, q.o, q.h, end, q.W);
+  const keep = S.backSel && S.back === back;
   S.back = back;
-  $("back").hidden = false;
-  $("back-sub").textContent = `診察が ${fmt(end)} ごろに終わる見込みとして、` + (q.W ? `${fmt(end)}〜${fmt(end + q.W)} に出る便をさがしました。` : "終わってすぐ出る便をさがしました。");
+  setView("back");
+  $("back-sub").textContent = `診察が ${fmt(end)} ごろに終わる見込みとして、${fmt(end)}〜${fmt(end + q.W)} に出る便をさがしました。`;
   if (back.none) {
     $("back-list").innerHTML = `<div class="empty">この時間帯の帰りの便は、ほかの予約で埋まっています。` +
       (back.next ? `<br>次に取れるのは <b>${fmt(back.next.tp)} 発</b>です。` : `<br>この日はもう取れません。`) + `</div>`;
-    $("confirm").hidden = true; S.backSel = null; drawTrace(); return;
+    S.backSel = null; $("to-all").disabled = true; drawTrace(); return;
   }
+  $("to-all").disabled = false;
   $("back-list").innerHTML = back.opts.map((x, k) => backCard(x, k, q)).join("");
   $("back-list").querySelectorAll(".opt").forEach((b) => b.onclick = () => selectBack(+b.dataset.i));
   const safe = back.opts.findIndex((x) => x.kind === "spot" && mins(x.slack) >= 15);
-  selectBack(safe >= 0 ? safe : 0);
+  selectBack(keep ? back.opts.indexOf(S.backSel) : (safe >= 0 ? safe : 0));
+  fitCoords(S.coords);
 }
 function selectBack(i) {
   S.backSel = S.back.opts[i];
   $("back-list").querySelectorAll(".opt").forEach((b) => b.classList.toggle("sel", +b.dataset.i === i));
-  const g = S.goSel, b = S.backSel;
-  $("confirm").hidden = false;
-  $("confirm-text").innerHTML = `<p>行き <b>${fmt(g.bus.tp)}</b> 乗車（${sname(g.bus.r.p)}）／帰り <b>${fmt(b.bus.tp)}</b> 乗車（${sname(b.bus.y)}）。
-    帰りを先に押さえるので、診察のあとに電話して待つ必要がありません。</p>`;
   drawTrace();
+}
+// 経路全体（行き → 病院 → 帰り）
+function showAll() {
+  const q = S.q, g = S.goSel, b = S.backSel;
+  setView("all");
+  const stays = [g, b].filter((x) => x.spot).map((x) => `${x === g ? "行き" : "帰り"}: ${esc(x.spot.label)}${x.spot.name ? `（${esc(x.spot.name)}）` : ""}で ${dur(x === g ? x.stay - 120 : x.stay)}`);
+  const walk = [...g.steps, ...b.steps].filter((s) => s.type === "walk").reduce((a, s) => a + s.sec, 0);
+  $("all-body").innerHTML = `
+    <div class="allsum">
+      <div class="big">${fmt(g.bus.tp)} ${sname(g.bus.r.p)} で乗る → ${fmt(b.bus.td)} ${sname(b.bus.r.d)} に帰る</div>
+      <div>病院 ${hname(q.h)}：${fmt(q.T)} 着の予定、診察は ${fmt(q.T + q.Dur)} ごろまで（見込み）</div>
+      <div>帰りの便は、診察が ${dur(b.slack)} のびても間に合います</div>
+      <div>寄り道：${stays.length ? stays.join("／") : "なし"}</div>
+      <div>歩く：合わせて ${mins(walk)} 分</div>
+    </div>
+    <div class="leg-h c-me"><span class="ic ic-van"></span>行き</div>
+    <div class="alllist">${stepRows(g.steps)}</div>
+    <div class="leg-h c-back"><span class="ic ic-home-variant"></span>帰り</div>
+    <div class="alllist">${stepRows(b.steps)}</div>
+    <p class="sub" style="margin-top:10px">帰りを先に押さえるので、診察のあとに電話して待つ必要がありません。</p>`;
+  $("all-foot").hidden = !!S.booked; $("booked").hidden = !S.booked;
+  drawTrace();
+  fitCoords(S.coords);
+}
+// 真ん中のペインの切り替え: info（カレンダーと棒グラフ）／go／back／all
+function setView(v) {
+  S.view = v;
+  $("mid-info").hidden = v !== "info"; $("mid-res").hidden = v === "info";
+  for (const k of ["go", "back", "all"]) $("v-" + k).hidden = v !== k;
+  const n = { go: 0, back: 1, all: 2 }[v];
+  const can = [!!S.go, !!S.goSel && !S.go.none, !!(S.goSel && S.backSel)];
+  $("stepper").innerHTML = [["go", "1 行きの便"], ["back", "2 帰りの便"], ["all", "3 経路全体"]].map(([k, l], i) =>
+    (i ? `<span class="arrow">›</span>` : "") + `<button data-v="${k}" class="${i === n ? "on" : ""}" ${i <= n || can[i] ? "" : "disabled"}>${l}</button>`).join("") +
+    `<button class="home" data-v="info">混み具合を見る</button>`;
+  $("stepper").querySelectorAll("button").forEach((x) => x.onclick = () => {
+    const to = x.dataset.v;
+    if (to === "back") showBack(); else if (to === "all") showAll(); else { setView(to); drawTrace(); if (to === "go") fitCoords(S.coords); }
+  });
+  $("res-body").scrollTop = 0;
 }
 
 async function icon(name, fg, bg, size = 44, ring = null) {
@@ -387,19 +431,17 @@ function book() {
   S.plans[g] = b.bus.plan;
   const w1 = Engine.District.when(S.plans[g], S.goSel.bus.r), w2 = Engine.District.when(S.plans[g], b.bus.r);
   S.booked = { q, go: S.goSel, back: b, w1, w2 };
-  for (const id of ["out", "back", "confirm"]) $(id).hidden = true;
+  $("all-foot").hidden = true;
   $("booked").hidden = false;
   $("booked-text").innerHTML = `<p><b>予約しました</b>（この画面の中だけの予約です）</p>
     <p>行き ${fmt(w1.tp)} ${sname(S.goSel.bus.r.p)} で乗車 → ${fmt(w1.td)} ${sname(S.goSel.bus.x)}<br>
-    帰り ${fmt(w2.tp)} ${sname(b.bus.y)} で乗車 → ${fmt(w2.td)} ${sname(b.bus.r.d)}</p>
-    <p class="sub">地図に、行き（<span class="c-me">ピンク</span>）と帰り（<span class="c-back">青</span>）の道を出しています。</p>`;
-  drawTrace();
+    帰り ${fmt(w2.tp)} ${sname(b.bus.y)} で乗車 → ${fmt(w2.td)} ${sname(b.bus.r.d)}</p>`;
+  $("res-body").scrollTop = 1e6;
 }
 function cancel() {
   if (S.booked) S.plans[S.booked.q.g] = S.base[S.booked.q.g];
   S.booked = null;
-  $("booked").hidden = true;
-  clearResults();
+  $("booked").hidden = true; $("all-foot").hidden = false;
 }
 
 // ------------------------------------------------------------------ 歩く道（OSRM の徒歩で取った形。なければまっすぐ）
@@ -419,9 +461,10 @@ function drawTrace() {
   if (!map || !map.getSource("route")) return;
   const F = [], marks = [];
   const st = S.data.stops, P = (id) => [st[id].lon, st[id].lat];
-  const go = S.booked ? S.booked.go : S.goSel, back = S.booked ? S.booked.back : S.backSel, q = S.booked ? S.booked.q : S.q;
+  const v = S.view || "info", q = S.q;
+  const go = v === "go" || v === "all" ? S.goSel : null, back = v === "back" || v === "all" ? S.backSel : null;
   const o = q ? q.o : $("orig").value, h = q ? q.h : $("hosp").value, g = S.g;
-  const plan = S.booked ? S.plans[q.g] : (back ? back.bus.plan : go && go.bus.plan);
+  const plan = back ? back.bus.plan : go && go.bus.plan;
   const line = (c, kind, leg) => c.length > 1 && F.push({ type: "Feature", geometry: { type: "LineString", coordinates: c }, properties: { kind, leg } });
   const spots = [];
   if (go && plan) {
@@ -429,7 +472,7 @@ function drawTrace() {
     const X = P(go.bus.x), H = P(h);
     if (go.spot) { line(walkPath(go.bus.x, go.spot), "walk", "go"); line(walkPath(go.spot, h), "walk", "go"); spots.push(go.spot); }
     else if (go.bus.x !== h) line(walkPath(go.bus.x, h), "walk", "go");
-  } else if (S.data.stops[o] && S.data.stops[h]) {
+  } else if (v === "info" && S.data.stops[o] && S.data.stops[h]) {
     line(seg(g, o, h).pts, "bus", "pre");   // さがす前: 出発地から病院への道
   }
   if (back && plan) {
@@ -444,7 +487,7 @@ function drawTrace() {
   S.coords = F.flatMap((f) => f.geometry.coordinates).concat(marks.map((m) => m.geometry.coordinates));
   map.getSource("route").setData(fc(F));
   map.getSource("marks").setData(fc(marks));
-  legend(!!(go || back));
+  legend(v);
 }
 function fitTo(ids) {
   if (!map) return;
@@ -459,10 +502,13 @@ function fitCoords(cs) {
   const pad = window.innerWidth < 820 ? 50 : { top: 90, bottom: 120, left: 60, right: 60 };
   map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: pad, maxZoom: 15.5, duration: 700 });
 }
-function legend(has) {
-  $("legend").innerHTML = has
-    ? `<div><span class="ln" style="background:${ME}"></span>行き（車）</div><div><span class="ln" style="background:${BACK}"></span>帰り（車）</div>
-       <div><span class="ln dash"></span>歩く（破線）</div><div class="sub">白い点・破線が流れる向きが進む向き</div>`
+function legend(v) {
+  const walk = (c) => `<span class="ln dash" style="background:repeating-linear-gradient(90deg, ${c} 0 5px, transparent 5px 9px)"></span>`;
+  const rows = [];
+  if (v === "go" || v === "all") rows.push(`<div><span class="ln" style="background:${ME}"></span>行き（車）　${walk(ME)}歩く</div>`);
+  if (v === "back" || v === "all") rows.push(`<div><span class="ln" style="background:${BACK}"></span>帰り（車）　${walk(BACK)}歩く</div>`);
+  $("legend").innerHTML = rows.length
+    ? rows.join("") + `<div class="sub">白い点・破線が流れる向きが進む向き</div>`
     : `<div><span class="ln" style="background:#495057"></span>出発地から病院への道（車）</div><div class="sub">便をさがすと、行きと帰りの道を出します</div>`;
 }
 // ピン（丸＋とがり）
@@ -567,6 +613,8 @@ async function main() {
   fitTo([$("orig").value, $("hosp").value]);
   $("form").onsubmit = search;
   $("book").onclick = book;
+  $("to-back").onclick = showBack;
+  $("to-all").onclick = showAll;
   $("reset").onclick = cancel;
   window.S = S; window.map = map; window.READY = true;
 }

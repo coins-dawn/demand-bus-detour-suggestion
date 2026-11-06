@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """画面を撮る（目視確認用）。python3 scripts/shot.py [URL] [出力先ディレクトリ]
 
-1. 開いたところ  2. 便をさがしたところ  3. 混む日を選んだところ  4. 予約したところ
-5. 左のペインの全体  6. このサービスについて  7. スマホの幅
+1. 開いたところ  2. 行きの便  3. 帰りの便  4. 経路全体  5. 予約したところ
+6. このサービスについて  7. スマホの幅
 """
 import os
 import sys
@@ -30,34 +30,17 @@ with sync_playwright() as p:
     pg.screenshot(path=f"{OUT}/1_top.png")
     pg.click("#go")
     pg.wait_for_timeout(2500)
-    pg.screenshot(path=f"{OUT}/2_search.png")
-    # 病院のまわりを拡大して、歩く道（破線）を見る
-    pg.evaluate("""() => { const f = map.getSource('route')._data.features.filter((x) => x.properties.kind === 'walk').flatMap((x) => x.geometry.coordinates);
-      const xs = f.map((c) => c[0]), ys = f.map((c) => c[1]);
-      map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: 160, duration: 0 }); }""")
+    pg.screenshot(path=f"{OUT}/2_go.png")
+    pg.click("#to-back")
     pg.wait_for_timeout(2500)
-    pg.screenshot(path=f"{OUT}/2b_walk.png")
-    # いちばん混む日をカレンダーから選ぶ（地区2の 9 月）
-    pg.evaluate("""() => { const b = [...document.querySelectorAll('#cal button.day')];
-      b.sort((x, y) => parseInt(y.title.split('予約 ')[1]) - parseInt(x.title.split('予約 ')[1]))[0].click(); }""")
-    pg.select_option("#arr", str(14 * 3600))
-    pg.dispatch_event("#arr", "change")
-    pg.wait_for_timeout(1500)
-    pg.screenshot(path=f"{OUT}/3_busy_day.png")
-    pg.close()
-    pg = open_page(b, viewport={"width": 1440, "height": 900})
-    pg.click("#go")
-    pg.wait_for_timeout(1500)
+    pg.screenshot(path=f"{OUT}/3_back.png")
+    pg.click("#to-all")
+    pg.wait_for_timeout(2500)
+    pg.screenshot(path=f"{OUT}/4_all.png")
     pg.click("#book")
-    pg.wait_for_timeout(2000)
-    pg.screenshot(path=f"{OUT}/4_booked.png")
+    pg.wait_for_timeout(1500)
+    pg.screenshot(path=f"{OUT}/5_booked.png")
     pg.close()
-    tall = open_page(b, viewport={"width": 1440, "height": 3000})
-    tall.click("#go")
-    tall.wait_for_timeout(2000)
-    h = tall.evaluate("document.querySelector('.pane').scrollHeight")
-    tall.screenshot(path=f"{OUT}/5_pane.png", clip={"x": 0, "y": 0, "width": 360, "height": min(3000, h + 60)})
-    tall.close()
     ab = b.new_page(viewport={"width": 1440, "height": 900})
     ab.goto(URL + "about.html")
     ab.screenshot(path=f"{OUT}/6_about.png", full_page=True)

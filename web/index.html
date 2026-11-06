@@ -27,30 +27,10 @@
       <button type="submit" id="go">便をさがす</button>
     </form>
 
-    <section id="out" hidden>
-      <h2><span class="ic ic-van"></span>行きの便</h2>
-      <p class="sub" id="out-sub"></p>
-      <div id="out-list" class="list"></div>
-    </section>
-
-    <section id="back" hidden>
-      <h2><span class="ic ic-home-variant"></span>帰りの便</h2>
-      <p class="sub" id="back-sub"></p>
-      <div id="back-list" class="list"></div>
-    </section>
-
-    <section id="confirm" hidden class="card confirm">
-      <div id="confirm-text"></div>
-      <button id="book">この内容で予約する</button>
-    </section>
-
-    <section id="booked" hidden class="card booked">
-      <div id="booked-text"></div>
-      <button id="reset" class="sub-btn ghost">予約を取り消す</button>
-    </section>
   </aside>
 
   <section class="mid">
+   <div class="mid-info" id="mid-info">
     <div class="mid-box cal-box">
       <div class="verdict" id="day-verdict"></div>
       <div class="cal-head">
@@ -66,6 +46,36 @@
       <div class="chart" id="chart"></div>
       <p class="note" id="chart-note"></p>
     </div>
+   </div>
+
+   <div class="mid-res" id="mid-res" hidden>
+    <div class="stepper" id="stepper"></div>
+    <div class="res-body" id="res-body">
+      <section id="v-go">
+        <h2><span class="ic ic-van"></span>行きの便をえらぶ</h2>
+        <p class="sub" id="out-sub"></p>
+        <div id="out-list" class="list"></div>
+        <div class="res-foot"><button id="to-back" class="next">帰りの便を選択にすすむ</button></div>
+      </section>
+      <section id="v-back" hidden>
+        <h2><span class="ic ic-home-variant"></span>帰りの便をえらぶ</h2>
+        <p class="sub" id="back-sub"></p>
+        <div id="back-list" class="list"></div>
+        <div class="res-foot"><button id="to-all" class="next">経路全体を確認する</button></div>
+      </section>
+      <section id="v-all" hidden>
+        <h2><span class="ic ic-clock-outline"></span>経路全体</h2>
+        <div id="all-body"></div>
+        <div class="res-foot" id="all-foot">
+          <button id="book" class="next">この内容で予約する</button>
+        </div>
+        <div id="booked" hidden class="card booked">
+          <div id="booked-text"></div>
+          <button id="reset" class="sub-btn ghost">予約を取り消す</button>
+        </div>
+      </section>
+    </div>
+   </div>
   </section>
 
   <main class="mapwrap">
