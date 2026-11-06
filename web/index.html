@@ -12,6 +12,7 @@
   <aside class="pane">
     <header>
       <h1>通院の行き帰り デマンド予約</h1>
+      <div class="dist" id="dist" role="tablist" aria-label="地区"></div>
       <p class="lead">行きも帰りも、いっしょに予約します。帰りは<strong>診察がのびても間に合う便</strong>を選べて、待つあいだに近くで過ごす場所まで出します。</p>
       <p class="svc" id="svc"></p>
     </header>
@@ -24,10 +25,15 @@
         <label>病院に着きたい時刻<select id="arr"></select></label>
         <label>診察にかかる時間<select id="dur"></select></label>
       </div>
-      <label>診察の時間の幅（待ってもよい時間）<select id="wid"></select></label>
       <p class="hint" id="hint"></p>
       <button type="submit" id="go">便をさがす</button>
     </form>
+
+    <section id="wsum" hidden>
+      <h2><span class="ic ic-clock-outline"></span>待ってもよい時間ごとの結果</h2>
+      <p class="sub">押すと、その時間の行きと帰りの候補を下に出します。</p>
+      <div id="wsum-list" class="wsum"></div>
+    </section>
 
     <section id="out" hidden>
       <h2><span class="ic ic-van"></span>行きの便</h2>
@@ -58,9 +64,17 @@
   <main class="mapwrap">
     <div id="map"></div>
     <div class="hud">
-      <div class="clock"><span class="ic ic-clock-outline"></span><span id="clock">8:00</span></div>
-      <div class="speed" id="speed"></div>
-      <button id="pp" class="pp" aria-label="一時停止"><span class="ic ic-pause"></span></button>
+      <div class="hud-row">
+        <button id="pp" class="pp" aria-label="一時停止"><span class="ic ic-pause"></span></button>
+        <div class="clock"><span id="clock">8:00</span></div>
+        <div class="speed" id="speed"></div>
+      </div>
+      <div class="tl">
+        <div class="tl-bars" id="tl-bars" aria-hidden="true"></div>
+        <input type="range" id="tl-in" min="0" max="1" step="60" aria-label="時刻">
+        <div class="tl-axis" id="tl-axis" aria-hidden="true"></div>
+      </div>
+      <p class="tl-note" id="tl-note"></p>
     </div>
     <div class="legend" id="legend"></div>
   </main>

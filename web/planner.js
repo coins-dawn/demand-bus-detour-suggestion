@@ -8,6 +8,7 @@
   const NEAR_STOP_M = 500;      // 病院の近くの乗り場（ここで乗り降りしてもよい）
   const MAX_WALK_MIN = 12;      // 過ごす場所まで歩くのはここまで
   const MIN_STAY = 10 * 60;     // 過ごす時間がこれより短ければ出さない
+  const ON_TIME = 10 * 60;      // 着きたい時刻のこれより前に着くなら「ちょうど着く」。寄り道は出さない
   const STEP = 5 * 60;
   const GROUPS = {
     rest: { label: "落ち着ける場所", icon: "coffee" },
@@ -94,6 +95,8 @@
         kind: "direct", group: null, bus: direct, gap, withinW: gap <= W,
         steps: this.stepsGo(direct, null, h, T),
       });
+      // ちょうど着く便（10 分前まで）が取れたら、寄り道は出さない
+      if (gap <= ON_TIME) return { opts };
       // 早めに着く: 降りた乗り場 → 過ごす場所 → 病院
       const cands = [];
       for (const a of res) {
