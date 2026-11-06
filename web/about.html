@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>このサービスについて｜デマンドバス 寄り道シミュレーション</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  body { overflow-y: auto; }
+  .doc { max-width: 760px; margin: 0 auto; padding: 20px 20px 60px; font-size: 15px; line-height: 1.8; }
+  .doc h2 { font-size: 18px; margin: 28px 0 6px; border-left: 4px solid var(--me); padding-left: 8px; }
+  .doc ul { padding-left: 1.3em; margin: 6px 0; }
+  .doc .disclaimer { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; font-size: 14px; }
+  .doc a { color: var(--back); }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1><a href="index.html" style="color:inherit;text-decoration:none">デマンドバス 寄り道シミュレーション</a></h1>
+  <a class="about" href="index.html">← もどる</a>
+</header>
+<div class="doc">
+  <h2>このサービスについて</h2>
+  <p>デマンドバス（予約して乗る乗合の車）で病院へ通う人のための、行きと帰りをいっしょに予約する画面の試作です。</p>
+  <ul>
+    <li><b>行き</b>: 病院に着きたい時刻に間に合う便をさがします。ちょうど着く便がほかの予約で埋まっていて早く着くしかないときは、
+      降りてから病院へ向かうまでのあいだを近くで過ごす道順（寄り道）も出します。</li>
+    <li><b>帰り</b>: 診察が終わってすぐの便のほかに、診察がのびても間に合うように 1 時間までおそい便と、
+      そのあいだを近くで過ごしてから乗る道順を出します。帰りを先に押さえておけば、診察のあとに電話して待つ必要がありません。</li>
+    <li>寄り道の場所は 3 つに分けています: 落ち着ける場所（カフェ・ファストフード・飲食店）／ついでの用事（スーパー・コンビニ・薬局・郵便局・本屋など）／
+      座って待てる場所（公園・ベンチ・公民館など）。</li>
+  </ul>
+
+  <h2>画面の見かた</h2>
+  <ul>
+    <li><b>左</b>: 地区・運行日・出発地・病院・着きたい時刻・診察の時間を選び、「便をさがす」を押します。</li>
+    <li><b>中の上（カレンダー）</b>: 日ごとの予約の多さを 4 段階の色で出します。選んだ日は黒い枠です。日付を押しても選べます。</li>
+    <li><b>中の下（棒グラフ）</b>: 選んだ日の 30 分ごとに乗る人の数です。行き（着きたい時刻までの 1 時間）と帰り（診察が終わってからの 1 時間）の時間帯を色で示し、
+      混み具合を言葉でも出します。点線はふだんの同じ曜日の平均です。</li>
+    <li><b>右（地図）</b>: 出発地と病院のピン、選んだ便の道を出します。線の上を流れる白い点が進む向きです。左上で寄り道のスポットと病院の表示を切り替えられます。</li>
+  </ul>
+
+  <h2>しくみ</h2>
+  <ul>
+    <li>対象は埼玉県川越市のデマンド交通「かわまる」の 3 地区です（地区ごとに車 1 台・7 人乗り、8:00〜18:00、11:00〜11:30 と 15:00〜15:30 は運転手の休憩、地区をまたいでは乗れません）。</li>
+    <li>選んだ日の<b>実際の予約の記録（乗降実績）</b>を、配車の計算で乗る時刻の順に受け付け直し、その日の車の動きを作ります。
+      そこにあなたの予約を差し込めるかを計算して、取れる便を出します。</li>
+    <li>車の走る時間は道路の地図から計算した目安です。ほかの予約で埋まっているかどうかも計算による目安で、<b>実際の予約の受付とは関係ありません</b>。</li>
+    <li>混み具合の 4 段階（空いている／ふつう／混んでいる／とても混んでいる）は、その地区の 1 年（2025年8月〜2026年7月）の中での位置です
+      （日は 1 日の人数、時間帯は 1 時間の人数で、下から 3 分の 1・3 分の 2・9 割で区切っています）。</li>
+    <li>歩く速さは分速 50m のゆっくりめ、道なりは直線の 1.3 倍で見ています。寄り道の場所の営業時間は見ていないので、出かける前に確かめてください。</li>
+  </ul>
+
+  <h2>利用しているデータ</h2>
+  <ul>
+    <li><b>デマンド交通データ</b>（運行情報 GTFS-Flex・乗降実績）: 「埼玉県川越市 かわまる」、提供 順風路株式会社。
+      <a href="https://ckan.odpt.org/" target="_blank" rel="noopener">公共交通オープンデータセンター</a> で公開、
+      <a href="https://creativecommons.org/licenses/by/4.0/deed.ja" target="_blank" rel="noopener">CC BY 4.0</a>（2026-09-17 取得）。
+      乗降実績を配車の計算で並べ直して使っています。</li>
+    <li><b>寄り道の場所・道路</b>: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>（ODbL）。病院から 600m 以内の 146 か所。</li>
+    <li><b>車の所要時間と道の形</b>: OpenStreetMap の道路から <a href="https://project-osrm.org/" target="_blank" rel="noopener">OSRM</a> で計算。</li>
+    <li><b>背景地図</b>: <a href="https://openfreemap.org/" target="_blank" rel="noopener">OpenFreeMap</a>（© OpenMapTiles、© OpenStreetMap contributors）。</li>
+    <li><b>アイコン</b>: Material Design Icons（<a href="https://iconify.design/" target="_blank" rel="noopener">Iconify</a> 経由、Apache License 2.0）。</li>
+  </ul>
+  <p class="disclaimer">本アプリケーションが利用する公共交通データは、公共交通オープンデータセンターにおいて提供されるものです。公共交通事業者により提供されたデータを元にしていますが、必ずしも正確・完全なものとは限りません。本アプリケーションの表示内容について、公共交通事業者への直接の問合せは行わないでください。</p>
+</div>
+</body>
+</html>

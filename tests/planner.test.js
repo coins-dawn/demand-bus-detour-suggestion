@@ -7,7 +7,7 @@ const fmt = (t) => `${Math.floor(t / 3600)}:${String(Math.floor(t / 60) % 60).pa
 let fails = 0, early = 0, n = 0;
 for (const o of data.origins) {
   for (const h of data.hospitals.filter((x) => x.g === o.g)) {
-    for (const day of data.days) {
+    for (const day of data.days.filter((_, i) => i % 40 === 0)) {
       for (const T of [9 * 3600, 10 * 3600, 14 * 3600]) {
         const D = new District(data, o.g);
         const P = new Planner(data, D);

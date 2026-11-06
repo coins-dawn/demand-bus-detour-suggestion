@@ -135,6 +135,7 @@
       let plan = { route: [], times: [], arrs: [], ds: 0 };
       const rejected = [];
       rows.forEach((o, i) => {
+        if (Array.isArray(o)) o = { p: o[0], d: o[1], t: o[2], t1: o[3], pax: o[4] };
         const r = this.makeReq(Object.assign({ id: "R" + this.g + "-" + i, real: true }, o));
         const np = this.insert(plan, r);
         if (np) plan = np; else rejected.push(r);

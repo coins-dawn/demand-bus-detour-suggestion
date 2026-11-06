@@ -153,32 +153,18 @@ def main():
 
     per_day = collections.Counter(r[0] for r in rows)
     wd = lambda d: dt.date(int(d[:4]), int(d[4:6]), int(d[6:])).weekday()
-    # 平日を予約の件数で並べ、ふつうの日（中央値）・やや混む日（75%）・混む日（95%）を 2 日ずつ。
-    # 祝日・年末年始の前後を避けるため、件数がその位置にもっとも近い日を、ちがう月から選ぶ
-    wds = sorted((n, d) for d, n in per_day.items() if wd(d) < 5)
-    LEVELS = [("ふつうの日", 0.5), ("やや混む日", 0.75), ("混む日", 0.95)]
-    dates, level, months = [], {}, set()
-    for lab, qq in LEVELS:
-        target = wds[int(qq * (len(wds) - 1))][0]
-        for n, d in sorted(wds, key=lambda x: (abs(x[0] - target), x[1])):
-            if d[:6] in months or d in level:
-                continue
-            dates.append(d)
-            level[d] = lab
-            months.add(d[:6])
-            if sum(1 for x in level.values() if x == lab) >= 2:
-                break
-    dates.sort()
-    med = [n for n, d in wds]
-    print("日付", [(d, per_day[d], level[d]) for d in dates], "平日の中央値", med[len(med) // 2])
-
+    # 運行日はすべて入れる（カレンダーで選ぶ）。予約は [乗る, 降りる, 乗る時刻, 降りる時刻, 人数] の配列にして軽くする
+    by_day = collections.defaultdict(list)
+    for r in rows:
+        by_day[r[0]].append(r)
     days = []
-    for d in dates:
-        reqs = collections.Counter((g, p, q, t0, t1) for (dd, g, p, q, t0, t1) in rows if dd == d)
+    for d in sorted(by_day):
+        reqs = collections.Counter((g, p, q, t0, t1) for (dd, g, p, q, t0, t1) in by_day[d])
         by = {g: [] for g in DISTRICTS}
         for (g, p, q, t0, t1), k in sorted(reqs.items(), key=lambda x: x[0][3]):
-            by[g].append({"p": p, "d": q, "t": t0, "t1": t1, "pax": k})
-        days.append({"date": d, "wd": "月火水木金土日"[wd(d)], "n": sum(len(v) for v in by.values()), "people": per_day[d], "level": level[d], "reqs": by})
+            by[g].append([p, q, t0, t1, k])
+        days.append({"date": d, "wd": "月火水木金土日"[wd(d)], "reqs": by})
+    print("運行日", len(days), days[0]["date"], "〜", days[-1]["date"])
 
     # ---------------------------------------------------------------- 病院と出発地
     allrows = collections.defaultdict(list)

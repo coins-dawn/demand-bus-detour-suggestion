@@ -13,8 +13,6 @@ python3.9 scripts/build_data.py --geom     # ＋ 停留所間の道路の形 web
 python3 scripts/serve.py                     # http://localhost:8004/（ポートは引数で変えられる）
 ```
 
-URL に `?t=09:00` を付けると、その時刻から再生します。`&paused` を付けると止まった状態で開きます。
-
 ### 入力データの用意
 
 - デマンド交通データ: `../data-exploration/scripts/demand_fetch.py`
@@ -35,6 +33,7 @@ URL に `?t=09:00` を付けると、その時刻から再生します。`&pause
 - `web/engine.js` … 配車の計算（車 1 台・挿入法）。ブラウザでも Node でも動く
 - `web/planner.js` … 便の候補を作る
 - `web/app.js` … 画面と地図（MapLibre GL JS ＋ OpenFreeMap）
+- `web/about.html` … このサービスについて（出典・ライセンスの表示）
 - `scripts/build_data.py` … 画面が読むデータを作る
 - `scripts/shot.py` … 画面を撮る（Playwright）
 - `tests/` … `node tests/replay.test.js`、`node tests/planner.test.js`
