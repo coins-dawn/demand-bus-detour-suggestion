@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """画面を撮る（目視確認用）。python3 scripts/shot.py [URL] [出力先ディレクトリ]
 
-1. 開いたところ  2. 行きの便  3. 帰りの便  4. 経路全体  5. 予約したところ
+1. 開いたところ  2. 行きの便  3. 帰りの便  4. 経路全体
 6. このサービスについて  7. スマホの幅
 """
 import os
@@ -37,9 +37,6 @@ with sync_playwright() as p:
     pg.click("#to-all")
     pg.wait_for_timeout(2500)
     pg.screenshot(path=f"{OUT}/4_all.png")
-    pg.click("#book")
-    pg.wait_for_timeout(1500)
-    pg.screenshot(path=f"{OUT}/5_booked.png")
     pg.close()
     ab = b.new_page(viewport={"width": 1440, "height": 900})
     ab.goto(URL + "about.html")

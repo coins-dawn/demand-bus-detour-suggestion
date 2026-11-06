@@ -33,7 +33,7 @@ const DEFAULT = { date: "20260708", orig: "291", hospName: "きりむら内科�
 
 const S = {
   data: null, geom: {}, walk: {}, line: new Map(), eng: {}, base: {}, plans: {}, stats: {}, g: "2", cal: null,
-  q: null, go: null, back: null, goSel: null, backSel: null, booked: null, res: null,
+  q: null, go: null, back: null, goSel: null, backSel: null, res: null,
 };
 const day = () => S.data.days[+$("day").value];
 
@@ -87,7 +87,6 @@ function loadDay() {
   S.eng[g] = new District(S.data, g);
   const r = S.eng[g].replay(d.reqs[g]);
   S.base[g] = r.plan; S.plans[g] = r.plan;
-  S.booked = null;
   clearResults();
 }
 
@@ -227,7 +226,6 @@ function setDistrict(g) {
 
 // ------------------------------------------------------------------ 候補の表示
 function clearResults() {
-  if (S.booked) cancel();
   S.go = S.back = S.goSel = S.backSel = null;
   setView("info");
   drawTrace();
@@ -292,7 +290,6 @@ function backCard(o, i, q) {
 const W_FIXED = 3600;
 function search(ev) {
   ev && ev.preventDefault();
-  if (S.booked) { S.plans[S.booked.q.g] = S.base[S.booked.q.g]; S.booked = null; $("booked").hidden = true; }
   const o = $("orig").value, h = $("hosp").value, g = S.g;
   const q = { o, h, g, T: +$("arr").value, Dur: +$("dur").value, W: W_FIXED };
   S.q = q;
@@ -373,7 +370,6 @@ function showAll() {
     <div class="leg-h c-back"><span class="ic ic-home-variant"></span>帰り</div>
     <div class="alllist">${stepRows(b.steps)}</div>
     <p class="sub" style="margin-top:10px">帰りを先に押さえるので、診察のあとに電話して待つ必要がありません。</p>`;
-  $("all-foot").hidden = !!S.booked; $("booked").hidden = !S.booked;
   drawTrace();
   fitCoords(S.coords);
 }
@@ -424,24 +420,6 @@ async function baseStyle() {
     return l;
   });
   return st;
-}
-
-function book() {
-  const q = S.q, g = q.g, b = S.backSel;
-  S.plans[g] = b.bus.plan;
-  const w1 = Engine.District.when(S.plans[g], S.goSel.bus.r), w2 = Engine.District.when(S.plans[g], b.bus.r);
-  S.booked = { q, go: S.goSel, back: b, w1, w2 };
-  $("all-foot").hidden = true;
-  $("booked").hidden = false;
-  $("booked-text").innerHTML = `<p><b>予約しました</b>（この画面の中だけの予約です）</p>
-    <p>行き ${fmt(w1.tp)} ${sname(S.goSel.bus.r.p)} で乗車 → ${fmt(w1.td)} ${sname(S.goSel.bus.x)}<br>
-    帰り ${fmt(w2.tp)} ${sname(b.bus.y)} で乗車 → ${fmt(w2.td)} ${sname(b.bus.r.d)}</p>`;
-  $("res-body").scrollTop = 1e6;
-}
-function cancel() {
-  if (S.booked) S.plans[S.booked.q.g] = S.base[S.booked.q.g];
-  S.booked = null;
-  $("booked").hidden = true; $("all-foot").hidden = false;
 }
 
 // ------------------------------------------------------------------ 歩く道（OSRM の徒歩で取った形。なければまっすぐ）
@@ -618,10 +596,8 @@ async function main() {
   drawTrace();
   fitTo([$("orig").value, $("hosp").value]);
   $("form").onsubmit = search;
-  $("book").onclick = book;
   $("to-back").onclick = showBack;
   $("to-all").onclick = showAll;
-  $("reset").onclick = cancel;
   window.S = S; window.map = map; window.READY = true;
 }
 main();
