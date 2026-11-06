@@ -31,6 +31,12 @@ with sync_playwright() as p:
     pg.click("#go")
     pg.wait_for_timeout(2500)
     pg.screenshot(path=f"{OUT}/2_search.png")
+    # 病院のまわりを拡大して、歩く道（破線）を見る
+    pg.evaluate("""() => { const f = map.getSource('route')._data.features.filter((x) => x.properties.kind === 'walk').flatMap((x) => x.geometry.coordinates);
+      const xs = f.map((c) => c[0]), ys = f.map((c) => c[1]);
+      map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: 160, duration: 0 }); }""")
+    pg.wait_for_timeout(2500)
+    pg.screenshot(path=f"{OUT}/2b_walk.png")
     # いちばん混む日をカレンダーから選ぶ（地区2の 9 月）
     pg.evaluate("""() => { const b = [...document.querySelectorAll('#cal button.day')];
       b.sort((x, y) => parseInt(y.title.split('予約 ')[1]) - parseInt(x.title.split('予約 ')[1]))[0].click(); }""")

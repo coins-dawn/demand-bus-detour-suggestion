@@ -73,7 +73,7 @@ form select { display: block; width: 100%; margin-top: 4px; padding: 8px; font-s
 .layers label { display: flex; gap: 6px; align-items: center; padding: 2px 0; cursor: pointer; }
 .legend { position: absolute; bottom: 52px; left: 12px; background: rgba(255,255,255,.96); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 12px; line-height: 1.7; }
 .legend .ln { display: inline-block; width: 22px; height: 5px; border-radius: 3px; margin-right: 6px; vertical-align: 2px; }
-.legend .ln.dot { background: radial-gradient(circle, #495057 1.6px, transparent 2px) 0 0 / 6px 5px repeat-x; }
+.legend .ln.dash { background: repeating-linear-gradient(90deg, #495057 0 5px, transparent 5px 9px); }
 .legend .sub { margin: 0; font-size: 11px; }
 
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }

@@ -8,6 +8,7 @@
 # 1. データを作る（../data-exploration にデマンド交通データと OSRM の所要時間表がある前提）
 python3.9 scripts/build_data.py            # web/data/kawagoe.json
 python3.9 scripts/build_data.py --geom     # ＋ 停留所間の道路の形 web/data/geom_*.json（OSRM が要る）
+python3 scripts/build_walk.py              # 病院・乗り場・寄り道の場所のあいだの歩く道 web/data/walk.json（OSRM の徒歩が要る）
 
 # 2. 配信して開く
 python3 scripts/serve.py                     # http://localhost:8004/（ポートは引数で変えられる）
@@ -20,6 +21,13 @@ python3 scripts/serve.py                     # http://localhost:8004/（ポー�
 - OSRM のグラフ: `../data-exploration/scripts/osrm_build.py kawagoe`（`/var/tmp/odc2026-osrm` に作る）
 - 道路の形を取るときは OSRM を立てておく:
   `docker run -d --rm -p 5055:5000 -v /var/tmp/odc2026-osrm:/data osrm/osrm-backend osrm-routed --algorithm mld /data/kawagoe.osrm`
+- 歩く道を取るときは OSRM の徒歩のグラフを作って立てておく:
+  ```sh
+  docker run --rm -v /var/tmp/odc2026-osrm-foot:/data osrm/osrm-backend osrm-extract -p /opt/foot.lua /data/kawagoe.osm.pbf
+  docker run --rm -v /var/tmp/odc2026-osrm-foot:/data osrm/osrm-backend osrm-partition /data/kawagoe.osrm
+  docker run --rm -v /var/tmp/odc2026-osrm-foot:/data osrm/osrm-backend osrm-customize /data/kawagoe.osrm
+  docker run -d --rm -p 5056:5000 -v /var/tmp/odc2026-osrm-foot:/data osrm/osrm-backend osrm-routed --algorithm mld /data/kawagoe.osrm
+  ```
 - 周辺の場所（OSM）:
   ```sh
   osmium tags-filter -O -o kawagoe_spots.pbf kawagoe.osm.pbf \
@@ -35,6 +43,7 @@ python3 scripts/serve.py                     # http://localhost:8004/（ポー�
 - `web/app.js` … 画面と地図（MapLibre GL JS ＋ OpenFreeMap）
 - `web/about.html` … このサービスについて（出典・ライセンスの表示）
 - `scripts/build_data.py` … 画面が読むデータを作る
+- `scripts/build_walk.py` … 歩く道の形を作る
 - `scripts/shot.py` … 画面を撮る（Playwright）
 - `tests/` … `node tests/replay.test.js`、`node tests/planner.test.js`
 

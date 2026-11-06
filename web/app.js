@@ -32,7 +32,7 @@ function breakIn(a, b) {
 const DEFAULT = { date: "20260708", orig: "291", hospName: "きりむら内科医院", arr: 10 * 3600 };
 
 const S = {
-  data: null, geom: {}, line: new Map(), eng: {}, base: {}, plans: {}, stats: {}, g: "2", cal: null,
+  data: null, geom: {}, walk: {}, line: new Map(), eng: {}, base: {}, plans: {}, stats: {}, g: "2", cal: null,
   q: null, go: null, back: null, goSel: null, backSel: null, booked: null, res: null,
 };
 const day = () => S.data.days[+$("day").value];
@@ -402,6 +402,17 @@ function cancel() {
   clearResults();
 }
 
+// ------------------------------------------------------------------ 歩く道（OSRM の徒歩で取った形。なければまっすぐ）
+// a, b は乗り場の id か、寄り道の場所（spots の要素）
+function walkPath(a, b) {
+  const key = (x) => typeof x === "string" ? x : "s" + S.data.spots.indexOf(x);
+  const xy = (x) => typeof x === "string" ? [S.data.stops[x].lon, S.data.stops[x].lat] : [x.lon, x.lat];
+  const ka = key(a), kb = key(b), enc = S.walk[ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`];
+  let pts = enc ? decode(enc) : [];
+  if (enc && ka > kb) pts.reverse();
+  return [xy(a)].concat(pts, [xy(b)]);
+}
+
 // ------------------------------------------------------------------ 地図
 let map;
 function drawTrace() {
@@ -416,16 +427,16 @@ function drawTrace() {
   if (go && plan) {
     line(busPath(g, plan, go.bus.r), "bus", "go");
     const X = P(go.bus.x), H = P(h);
-    if (go.spot) { const s = [go.spot.lon, go.spot.lat]; line([X, s], "walk", "go"); line([s, H], "walk", "go"); spots.push(go.spot); }
-    else if (go.bus.x !== h) line([X, H], "walk", "go");
+    if (go.spot) { line(walkPath(go.bus.x, go.spot), "walk", "go"); line(walkPath(go.spot, h), "walk", "go"); spots.push(go.spot); }
+    else if (go.bus.x !== h) line(walkPath(go.bus.x, h), "walk", "go");
   } else if (S.data.stops[o] && S.data.stops[h]) {
     line(seg(g, o, h).pts, "bus", "pre");   // さがす前: 出発地から病院への道
   }
   if (back && plan) {
     line(busPath(g, plan, back.bus.r), "bus", "back");
     const Y = P(back.bus.y), H = P(h);
-    if (back.spot) { const s = [back.spot.lon, back.spot.lat]; line([H, s], "walk", "back"); line([s, Y], "walk", "back"); spots.push(back.spot); }
-    else if (back.bus.y !== h) line([H, Y], "walk", "back");
+    if (back.spot) { line(walkPath(h, back.spot), "walk", "back"); line(walkPath(back.spot, back.bus.y), "walk", "back"); spots.push(back.spot); }
+    else if (back.bus.y !== h) line(walkPath(h, back.bus.y), "walk", "back");
   }
   marks.push(pt(P(o), { icon: "pin-home", label: st[o].name }));
   marks.push(pt(P(h), { icon: "pin-hosp", label: hname(h) }));
@@ -451,7 +462,7 @@ function fitCoords(cs) {
 function legend(has) {
   $("legend").innerHTML = has
     ? `<div><span class="ln" style="background:${ME}"></span>行き（車）</div><div><span class="ln" style="background:${BACK}"></span>帰り（車）</div>
-       <div><span class="ln dot"></span>歩く</div><div class="sub">線の上の白い点は進む向き</div>`
+       <div><span class="ln dash"></span>歩く（破線）</div><div class="sub">白い点・破線が流れる向きが進む向き</div>`
     : `<div><span class="ln" style="background:#495057"></span>出発地から病院への道（車）</div><div class="sub">便をさがすと、行きと帰りの道を出します</div>`;
 }
 // ピン（丸＋とがり）
@@ -508,7 +519,7 @@ async function initMap() {
     layout: { "line-cap": "round", "line-join": "round" },
     paint: { "line-color": legColor, "line-width": 6, "line-offset": ["match", ["get", "leg"], "pre", 0, 3.5], "line-opacity": 0.9 } });
   map.addLayer({ id: "route-walk", type: "line", source: "route", filter: ["==", ["get", "kind"], "walk"],
-    layout: { "line-cap": "round" }, paint: { "line-color": legColor, "line-width": 4, "line-dasharray": [0.1, 1.8] } });
+    layout: { "line-cap": "butt", "line-join": "round" }, paint: { "line-color": legColor, "line-width": 4, "line-offset": ["match", ["get", "leg"], "back", 8, 3], "line-dasharray": [1.5, 1.5] } });
   map.addLayer({ id: "route-ants", type: "line", source: "route", filter: ["==", ["get", "kind"], "bus"],
     layout: { "line-cap": "butt", "line-join": "round" },
     paint: { "line-color": "#fff", "line-width": 2.5, "line-offset": ["match", ["get", "leg"], "pre", 0, 3.5], "line-dasharray": [0, 4, 3] } });
@@ -525,10 +536,16 @@ async function initMap() {
   // 白い点を流す（MapLibre の線の破線をずらしていく）
   const SEQ = [[0, 4, 3], [0.5, 4, 2.5], [1, 4, 2], [1.5, 4, 1.5], [2, 4, 1], [2.5, 4, 0.5], [3, 4, 0],
     [0, 0.5, 3, 3.5], [0, 1, 3, 3], [0, 1.5, 3, 2.5], [0, 2, 3, 2], [0, 2.5, 3, 1.5], [0, 3, 3, 1], [0, 3.5, 3, 0.5]];
+  // 歩く道は破線そのものを流す（長さ 1.5 の線と 1.5 のすき間を、少しずつ先へずらす）
+  const D = 1.5, G = 1.5, L = D + G;
+  const WSEQ = SEQ.map((_, i) => {
+    const f = (i / SEQ.length) * L;
+    return f < G ? [0, f, D, G - f] : [f - G, G, L - f, 0];
+  });
   let k = -1;
   const ants = (ts) => {
     const n = Math.floor(ts / 70) % SEQ.length;
-    if (n !== k) { k = n; map.setPaintProperty("route-ants", "line-dasharray", SEQ[n]); }
+    if (n !== k) { k = n; map.setPaintProperty("route-ants", "line-dasharray", SEQ[n]); map.setPaintProperty("route-walk", "line-dasharray", WSEQ[n]); }
     requestAnimationFrame(ants);
   };
   requestAnimationFrame(ants);
@@ -539,6 +556,7 @@ async function main() {
   const gs = Object.keys(S.data.districts);
   const gg = await Promise.all(gs.map((g) => fetch(`data/geom_${g}.json`).then((r) => r.ok ? r.json() : {}).catch(() => ({}))));
   gs.forEach((g, i) => S.geom[g] = gg[i]);
+  S.walk = await fetch("data/walk.json").then((r) => r.ok ? r.json() : {}).catch(() => ({}));
   fillForm();
   $("cal-prev").onclick = () => { const ms = [...new Set(S.data.days.map((x) => x.date.slice(0, 6)))]; S.cal = ms[Math.max(0, ms.indexOf(S.cal) - 1)]; renderCal(); };
   $("cal-next").onclick = () => { const ms = [...new Set(S.data.days.map((x) => x.date.slice(0, 6)))]; S.cal = ms[Math.min(ms.length - 1, ms.indexOf(S.cal) + 1)]; renderCal(); };
