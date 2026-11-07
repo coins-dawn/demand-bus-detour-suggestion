@@ -1,0 +1,33 @@
+name: Deploy site to GitHub Pages
+
+on:
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # ⚠ Pages は **先に Settings → Pages → Source を「GitHub Actions」にしておく**こと。
+      # ここで enablement: true にして自動で作らせようとしたが、
+      # 既定のトークンには作る権限が無く "Resource not accessible by integration" で落ちる。
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+      - id: deployment
+        uses: actions/deploy-pages@v4

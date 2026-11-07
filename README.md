@@ -36,6 +36,10 @@ python3 scripts/serve.py                     # http://localhost:8004/（ポー�
   osmium export -O -f geojsonseq -o kawagoe_spots.geojsonseq kawagoe_spots.pbf
   ```
 
+## 公開
+
+`.github/workflows/pages.yml` が main への push で `web/` を GitHub Pages に出す（Settings → Pages → Source を「GitHub Actions」にしておく）。
+
 ## 作り
 
 - `web/engine.js` … 配車の計算（車 1 台・挿入法）。ブラウザでも Node でも動く
@@ -55,4 +59,4 @@ python3 scripts/serve.py                     # http://localhost:8004/（ポー�
 - 背景地図: OpenFreeMap（© OpenMapTiles、© OpenStreetMap contributors）
 - アイコン: Material Design Icons（Iconify 経由、Apache License 2.0）
 
-`web/data/` はデータの規約に合わせて git に入れていない。
+`web/data/` は上のデータから作った派生データ（CC BY 4.0・ODbL）で、GitHub Pages で配るために git に入れている。
