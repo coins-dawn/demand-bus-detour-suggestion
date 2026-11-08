@@ -1,6 +1,7 @@
-// 画面: 上にヘッダ。左＝条件と候補、中＝カレンダーと時間帯の混み具合、右＝地図（出発地・病院・経路）
-const { District, SVC_P, SVC_D } = Engine;
-const { Planner, GROUPS, walkSec } = Plan;
+// 画面: 上にヘッダ。左＝条件（行き／帰り・地区・出発地・目的地・日付・時刻）、その右＝候補、背景＝地図
+const { District } = Engine;
+const { GROUPS } = Plan;
+const { Trip, PLAT } = TripPlan;
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -24,18 +25,16 @@ const LV = [
 const chip = (l) => `<span class="lv" style="background:${LV[l].c};color:${LV[l].ink}">${LV[l].t}</span>`;
 const BIN = 1800, T0 = 8 * 3600, T1 = 18 * 3600, NB = (T1 - T0) / BIN;
 const WD = "月火水木金土日";
-function breakIn(a, b) {
-  const br = S.data.service.breaks.find(([x, y]) => Engine.hm(x) < b && Engine.hm(y) > a);
-  return br ? `${br[0]}〜${br[1]} は運転手の休憩で、車が動きません。` : "";
-}
-// 開いたときの例（2026-07-08 の実績で、10:00 ちょうどに着く便が埋まっている組）
-const DEFAULT = { date: "20260708", orig: "291", hospName: "きりむら内科医院", arr: 10 * 3600 };
+const HOLIDAYS = new Set(["20260720"]);
 
 const S = {
-  data: null, geom: {}, walk: {}, line: new Map(), eng: {}, base: {}, plans: {}, stats: {}, g: "2", cal: null,
-  q: null, go: null, back: null, goSel: null, backSel: null, res: null,
+  data: null, med: null, rail: null, walk: { p: {}, c: {} }, geom: {}, line: new Map(), eng: {}, base: {}, stats: {},
+  dir: "go", g: "2", stop: "", hosp: "", di: -1, T: null, res: null, sel: null, view: "form",
 };
-const day = () => S.data.days[+$("day").value];
+const day = () => S.data.days[S.di];
+const jdate = (iso) => { const [y, m, d] = iso.split("-").map(Number); return `${y}年${m}月${d}日`; };
+const medOf = (id) => S.med.list.find((x) => x.id === id);
+let trip;
 
 // ------------------------------------------------------------------ 道路の形
 function decode(str) {
@@ -52,7 +51,7 @@ function decode(str) {
   return out;
 }
 function seg(g, a, b) {
-  const key = a + ">" + b;
+  const key = g + a + ">" + b;
   if (S.line.has(key)) return S.line.get(key);
   const st = S.data.stops;
   let pts = null;
@@ -61,12 +60,7 @@ function seg(g, a, b) {
   if (enc) { pts = decode(enc); if (a > b) pts.reverse(); }
   if (!pts || pts.length < 2) pts = [[st[a].lon, st[a].lat], [st[b].lon, st[b].lat]];
   pts[0] = [st[a].lon, st[a].lat]; pts[pts.length - 1] = [st[b].lon, st[b].lat];
-  const cum = [0];
-  for (let i = 1; i < pts.length; i++) {
-    const dx = (pts[i][0] - pts[i - 1][0]) * Math.cos(pts[i][1] * Math.PI / 180), dy = pts[i][1] - pts[i - 1][1];
-    cum.push(cum[i - 1] + Math.hypot(dx, dy));
-  }
-  const o = { pts, cum, len: cum[cum.length - 1] };
+  const o = { pts };
   S.line.set(key, o);
   return o;
 }
@@ -78,16 +72,31 @@ function busPath(g, plan, r) {
   for (let i = i0 + 1; i <= i1; i++) if (ids[i] !== ids[i - 1]) pts = pts.concat(seg(g, ids[i - 1], ids[i]).pts);
   return pts;
 }
+// 歩く道（OSRM の徒歩で取った形。なければまっすぐ）
+const xy = (k) => { const p = trip.pos(k); return [p.lon, p.lat]; };
+function walkPath(a, b) {
+  const w = S.walk.p[a < b ? `${a}|${b}` : `${b}|${a}`];
+  let pts = w ? decode(w[0]) : [];
+  if (w && a > b) pts.reverse();
+  return [xy(a)].concat(pts, [xy(b)]);
+}
+function railPath(i, j) {
+  const p = S.rail.paths[i < j ? `${i}|${j}` : `${j}|${i}`];
+  const st = S.rail.stations;
+  if (!p) return [[st[i].lon, st[i].lat], [st[j].lon, st[j].lat]];
+  return i < j ? p : p.slice().reverse();
+}
 const pt = (c, p = {}) => ({ type: "Feature", geometry: { type: "Point", coordinates: c }, properties: p });
 const fc = (f) => ({ type: "FeatureCollection", features: f });
 
-// ------------------------------------------------------------------ 運行日（実績の予約を配車の計算で受け付け直す）
+// ------------------------------------------------------------------ 運行日（実績の予約を配車の計算で受け付け直す。3 地区とも）
 function loadDay() {
-  const g = S.g, d = day();
-  S.eng[g] = new District(S.data, g);
-  const r = S.eng[g].replay(d.reqs[g]);
-  S.base[g] = r.plan; S.plans[g] = r.plan;
-  clearResults();
+  const d = day();
+  for (const g of Object.keys(S.data.districts)) {
+    S.eng[g] = new District(S.data, g);
+    S.base[g] = S.eng[g].replay(d.reqs[g]).plan;
+  }
+  trip.setDay(d, S.eng, S.base);
 }
 
 // ------------------------------------------------------------------ 混み具合の集計（地区ごと、ひと月分）
@@ -105,369 +114,431 @@ function stats(g) {
   return S.stats[g] = { bins, tot, day: qs(Object.values(tot)), win: qs(win) };
 }
 const level = (v, Q) => v <= Q[0] ? 0 : v <= Q[1] ? 1 : v <= Q[2] ? 2 : 3;
-// [a, a+1 時間) に乗る人の数
 function winCount(b, a) {
   let n = 0;
   for (let k = 0; k < NB; k++) { const t = T0 + k * BIN; if (t >= a && t < a + 3600) n += b[k]; }
   return n;
 }
+// 行きは着く時刻の前の 1 時間、帰りは出る時刻からの 1 時間
+const winStart = (T) => S.dir === "go" ? T - 3600 : T;
 
-// ------------------------------------------------------------------ 中のペイン: カレンダー
+// ------------------------------------------------------------------ 吹き出し（日付のカレンダー・時刻の棒グラフ）
+function openPop(kind) {
+  const anchor = $(kind);
+  $("pop").hidden = false;
+  $("pop").dataset.kind = kind;
+  if (kind === "date") renderCal(); else renderChart();
+  const pane = $("pane"), r = anchor.getBoundingClientRect(), app = document.querySelector(".app").getBoundingClientRect();
+  if (window.innerWidth > 900) {
+    $("pop").style.left = (pane.offsetLeft + pane.offsetWidth + 10) + "px";
+    $("pop").style.top = Math.max(12, Math.min(r.top - app.top - 40, app.height - $("pop").offsetHeight - 12)) + "px";
+  } else { $("pop").style.left = ""; $("pop").style.top = ""; }
+}
+function closePop() { $("pop").hidden = true; }
+
 function renderCal() {
-  const st = stats(S.g), d = day(), byDate = new Map(S.data.days.map((x, i) => [x.date, i]));
-  if (!S.cal) S.cal = d.date.slice(0, 6);
-  const y = +S.cal.slice(0, 4), m = +S.cal.slice(4, 6);
-  $("cal-title").textContent = `${y}年${m}月`;
-  const months = [...new Set(S.data.days.map((x) => x.date.slice(0, 6)))];
-  $("cal-prev").disabled = months.indexOf(S.cal) <= 0;
-  $("cal-next").disabled = months.indexOf(S.cal) >= months.length - 1;
+  const st = stats(S.g), byDate = new Map(S.data.days.map((x, i) => [x.date, i]));
+  const ym = S.data.days[0].date.slice(0, 6), y = +ym.slice(0, 4), m = +ym.slice(4, 6);
+  $("pop-title").textContent = `日付をえらぶ（${S.data.districts[S.g].name}の混み具合）`;
   const first = new Date(y, m - 1, 1), nd = new Date(y, m, 0).getDate(), lead = (first.getDay() + 6) % 7;
   let h = WD.split("").map((w, i) => `<span class="wd${i >= 5 ? " we" : ""}">${w}</span>`).join("");
   for (let i = 0; i < lead; i++) h += `<span></span>`;
   for (let dd = 1; dd <= nd; dd++) {
-    const key = `${y}${String(m).padStart(2, "0")}${String(dd).padStart(2, "0")}`, idx = byDate.get(key);
+    const key = `${ym}${String(dd).padStart(2, "0")}`, idx = byDate.get(key);
     if (idx === undefined) { h += `<span class="day off" title="運行の記録なし">${dd}</span>`; continue; }
     const l = level(st.tot[key], st.day.Q);
-    h += `<button class="day${key === d.date ? " sel" : ""}" data-i="${idx}" style="background:${LV[l].c};color:${LV[l].ink}" title="${m}/${dd} 予約 ${st.tot[key]} 人・${LV[l].t}">${dd}</button>`;
+    const hol = HOLIDAYS.has(key) ? " hol" : "";
+    h += `<button type="button" class="day${idx === S.di ? " sel" : ""}${hol}" data-i="${idx}" style="background:${LV[l].c};color:${LV[l].ink}" title="${m}/${dd} 予約 ${st.tot[key]} 人・${LV[l].t}">${dd}</button>`;
   }
-  $("cal").innerHTML = h;
-  $("cal").querySelectorAll("button.day").forEach((b) => b.onclick = () => { $("day").value = b.dataset.i; onDay(); });
-  $("cal-scale").innerHTML = LV.map((x) => `<span><i style="background:${x.c}"></i>${x.t}</span>`).join("") + (h.includes("day off") ? `<span><i class="off"></i>記録なし</span>` : "");
-  const n = st.tot[d.date], rank = st.day.s.filter((v) => v > n).length / st.day.s.length;
-  const l = level(n, st.day.Q);
-  $("day-verdict").innerHTML = `<b>${+d.date.slice(4, 6)}月${+d.date.slice(6)}日（${d.wd}）</b>の${S.data.districts[S.g].name}は ${chip(l)}<br>
-    <span class="vsub">予約 ${n} 人。この月で多いほうから ${Math.max(1, Math.round(rank * 100))}% の日</span>`;
+  $("pop-body").innerHTML = `<div class="cal-title">${y}年${m}月</div><div class="cal">${h}</div>
+    <div class="scale">${LV.map((x) => `<span><i style="background:${x.c}"></i>${x.t}</span>`).join("")}</div>
+    <p class="note">色は、その日に${S.data.districts[S.g].name}のかわまるに乗った人の数（実績）。この月の中で多いか少ないかを 4 段階で出しています。</p>`;
+  $("pop-body").querySelectorAll("button.day").forEach((b) => b.onclick = () => { setDate(+b.dataset.i); closePop(); });
 }
-
-// ------------------------------------------------------------------ 中のペイン: この日の時間帯ごとの予約
+function timeChoices() {
+  const out = [];
+  if (S.dir === "go") for (let t = 8.5 * 3600; t <= 17.5 * 3600; t += 1800) out.push(t);
+  else for (let t = 8 * 3600; t <= 17 * 3600; t += 1800) out.push(t);
+  return out;
+}
 function renderChart() {
+  const go = S.dir === "go";
+  $("pop-title").textContent = go ? "病院に着きたい時刻をえらぶ" : "病院を出る時刻をえらぶ";
+  if (S.di < 0) { $("pop-body").innerHTML = `<p class="note big">先に日付をえらんでください。</p>`; return; }
   const st = stats(S.g), d = day(), b = st.bins[d.date];
-  const T = +$("arr").value, E = T + +$("dur").value;
-  const goA = T - 3600, backA = E;
-  const lgo = level(winCount(b, goA), st.win.Q), lback = level(winCount(b, backA), st.win.Q);
   const brk = S.data.service.breaks.map(([x, y]) => [Engine.hm(x), Engine.hm(y)]);
   const max = Math.max(6, ...b);
-  const inW = (t, a) => t >= a && t < a + 3600;
+  const T = S.T;
+  const inW = (t) => T != null && t >= winStart(T) && t < winStart(T) + 3600;
   let bars = "";
   for (let k = 0; k < NB; k++) {
     const t = T0 + k * BIN, isBrk = brk.some(([x, y]) => t >= x && t < y);
-    let cls = isBrk ? "brk" : "", style = `height:${(b[k] / max) * 100}%`;
-    if (!isBrk && inW(t, goA)) { cls = "hl"; style += `;background:${LV[lgo].c};border-color:${ME}`; }
-    else if (!isBrk && inW(t, backA)) { cls = "hl"; style += `;background:${LV[lback].c};border-color:${BACK}`; }
-    bars += `<i class="${cls}" style="${style}" title="${fmt(t)}〜 ${isBrk ? "休憩" : b[k] + "人"}"></i>`;
+    bars += `<i class="${isBrk ? "brk" : ""}${!isBrk && inW(t) ? " hl" : ""}" style="height:${(b[k] / max) * 100}%" title="${fmt(t)}〜 ${isBrk ? "休憩" : b[k] + "人"}"></i>`;
   }
   const pc = (t) => ((t - T0) / (T1 - T0)) * 100;
-  const tag = (a, cls, label) => {
-    const x0 = Math.max(T0, a), x1 = Math.min(T1, a + 3600);
-    return x1 > x0 ? `<span class="span ${cls}" style="left:${pc(x0)}%;width:${pc(x1) - pc(x0)}%">${label}</span>` : "";
-  };
-  $("chart").innerHTML = `
-    <div class="plot"><div class="bars">${bars}</div>
-</div>
-    <div class="spans">${tag(goA, "go", "行き")}${tag(backA, "back", "帰り")}</div>
-    <div class="axis">${[8, 10, 12, 14, 16, 18].map((h) => `<span style="left:${pc(h * 3600)}%">${h}時</span>`).join("")}</div>`;
-  $("time-verdict").innerHTML = `
-    <div class="vrow"><span class="lab go">行き</span>${fmt(T)} に着く便 ${chip(lgo)}<span class="vsub">${fmt(goA)}〜${fmt(T)} に乗る人 ${winCount(b, goA)} 人</span></div>
-    <div class="vrow"><span class="lab back">帰り</span>${fmt(E)} ごろから ${chip(lback)}<span class="vsub">${fmt(E)}〜${fmt(E + 3600)} に乗る人 ${winCount(b, backA)} 人</span></div>`;
-  $("chart-note").innerHTML = `棒は、この日の 30 分ごとに乗る人の数（実績の予約）。しま模様は運転手の休憩。
-    混み具合は、この地区のこの月の 1 時間ごとの数の中での位置です。`;
+  const btns = timeChoices().map((t) => {
+    const l = level(winCount(b, winStart(t)), st.win.Q);
+    return `<button type="button" class="tbtn${t === T ? " sel" : ""}" data-t="${t}" style="--lv:${LV[l].c};--ink:${LV[l].ink}">${fmt(t)}</button>`;
+  }).join("");
+  let verdict = "";
+  if (T != null) {
+    const a = winStart(T), n = winCount(b, a), l = level(n, st.win.Q);
+    verdict = `<div class="verdict">${go ? `${fmt(T)} に着く便` : `${fmt(T)} から乗る便`} ${chip(l)}<span class="vsub">${fmt(a)}〜${fmt(a + 3600)} に乗る人 ${n} 人</span></div>`;
+  }
+  $("pop-body").innerHTML = `
+    <div class="dayline">${+d.date.slice(4, 6)}月${+d.date.slice(6)}日（${d.wd}）・${S.data.districts[S.g].name}</div>
+    ${verdict}
+    <div class="chart"><div class="plot"><div class="bars">${bars}</div></div>
+      <div class="axis">${[8, 10, 12, 14, 16, 18].map((h) => `<span style="left:${pc(h * 3600)}%">${h}時</span>`).join("")}</div></div>
+    <div class="tbtns">${btns}</div>
+    <p class="note">棒は、この日の 30 分ごとに乗った人の数（実績）。しま模様は運転手の休憩。ボタンの色は、${go ? "着く時刻の前の 1 時間" : "出る時刻からの 1 時間"}の混み具合です。</p>`;
+  $("pop-body").querySelectorAll(".tbtn").forEach((x) => x.onclick = () => { S.T = +x.dataset.t; renderChart(); syncForm(); clearResults(); setTimeout(closePop, 250); });
 }
-function renderMid() { renderCal(); renderChart(); }
 
-// ------------------------------------------------------------------ 左のペイン: 入力
-function fillForm() {
-  const d = S.data;
-  S.g = (d.origins.find((x) => x.id === DEFAULT.orig) || d.origins[0]).g;
-  $("dist").innerHTML = Object.entries(d.districts).map(([g, x]) =>
-    `<button type="button" role="tab" data-g="${g}" style="--c:${COLORS[g]}">${esc(x.name)}</button>`).join("");
-  $("dist").querySelectorAll("button").forEach((b) => b.onclick = () => setDistrict(b.dataset.g));
-  const byM = new Map();
-  d.days.forEach((x, i) => { const k = x.date.slice(0, 6); if (!byM.has(k)) byM.set(k, []); byM.get(k).push([x, i]); });
-  $("day").innerHTML = [...byM].map(([k, xs]) => `<optgroup label="${k.slice(0, 4)}年${+k.slice(4)}月">` +
-    xs.map(([x, i]) => `<option value="${i}">${+x.date.slice(4, 6)}月${+x.date.slice(6)}日（${x.wd}）</option>`).join("") + "</optgroup>").join("");
-  const di = d.days.findIndex((x) => x.date === DEFAULT.date);
-  $("day").value = String(di >= 0 ? di : 0);
-  fillOrig();
-  if (d.origins.some((x) => x.id === DEFAULT.orig)) $("orig").value = DEFAULT.orig;
-  markDistrict();
-  const times = [];
-  for (let t = 8.5 * 3600; t <= 16.5 * 3600; t += 1800) times.push(t);
-  $("arr").innerHTML = times.map((t) => `<option value="${t}">${fmt(t)}</option>`).join("");
-  $("arr").value = String(DEFAULT.arr);
-  $("dur").innerHTML = [[1800, "30分"], [3600, "1時間"], [5400, "1時間30分"], [7200, "2時間"], [10800, "3時間"]]
-    .map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
-  $("dur").value = "3600";
-  fillHosp();
-  const dh = d.hospitals.find((x) => x.name === DEFAULT.hospName && x.g === S.g);
-  if (dh) $("hosp").value = dh.id;
-  $("orig").onchange = () => { fillHosp(); clearResults(); fitTo([$("orig").value, $("hosp").value]); };
-  $("hosp").onchange = () => { clearResults(); fitTo([$("orig").value, $("hosp").value]); };
-  $("day").onchange = onDay;
-  $("arr").onchange = $("dur").onchange = () => { clearResults(); renderChart(); };
+// ------------------------------------------------------------------ 左のペイン
+const stopName = (id) => (S.data.stops[id] || {}).name || id;
+function stopsOf(g) {
+  return S.data.districts[g].stops.slice().sort((a, b) => stopName(a).localeCompare(stopName(b), "ja"));
 }
-function onDay() { S.cal = day().date.slice(0, 6); loadDay(); renderMid(); }
-function fillOrig() {
-  $("orig").innerHTML = S.data.origins.filter((x) => x.g === S.g).map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("");
+function stopOptions() {
+  return `<option value="">バス停をえらぶ</option>` + stopsOf(S.g).map((s) => `<option value="${s}">${esc(stopName(s))}</option>`).join("");
 }
-function fillHosp() {
-  $("hosp").innerHTML = S.data.hospitals.filter((x) => x.g === S.g).map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("");
+function hospOptions() {
+  return `<option value="">病院・診療所をえらぶ</option>` + Object.entries(S.data.districts).map(([g, x]) =>
+    `<optgroup label="${esc(x.name)}">` + S.med.list.filter((h) => h.g === g).map((h) =>
+      `<option value="${h.id}">${esc(h.name)}${h.kind === "病院" ? "（病院）" : ""}</option>`).join("") + "</optgroup>").join("");
 }
-function markDistrict() {
-  $("dist").querySelectorAll("button").forEach((b) => { const on = b.dataset.g === S.g; b.classList.toggle("on", on); b.setAttribute("aria-selected", on); });
+function syncForm() {
+  const go = S.dir === "go";
+  $("pane").classList.toggle("go", go); $("pane").classList.toggle("back", !go);
+  $("dir").querySelectorAll("button").forEach((b) => b.setAttribute("aria-checked", b.dataset.d === S.dir));
+  $("lab-from").textContent = go ? "出発地（バス停）" : "出発地（病院）";
+  $("lab-to").textContent = go ? "目的地（病院）" : "目的地（バス停）";
+  $("lab-time").textContent = go ? "病院に着きたい時刻" : "病院を出る時刻";
+  const stopSel = go ? $("from") : $("to"), hospSel = go ? $("to") : $("from");
+  stopSel.innerHTML = stopOptions(); hospSel.innerHTML = hospOptions();
+  stopSel.value = S.stop; hospSel.value = S.hosp;
+  stopSel.onchange = () => { S.stop = stopSel.value; clearResults(); focusSel(); };
+  hospSel.onchange = () => { S.hosp = hospSel.value; clearResults(); focusSel(); };
+  const d = S.di >= 0 ? day() : null;
+  $("date").textContent = d ? `${+d.date.slice(4, 6)}月${+d.date.slice(6)}日（${d.wd}）` : "えらぶ";
+  $("date").classList.toggle("empty", !d);
+  $("time").textContent = S.T != null ? fmt(S.T) : "えらぶ";
+  $("time").classList.toggle("empty", S.T == null);
+  $("go").disabled = !(S.stop && S.hosp && S.di >= 0 && S.T != null);
+}
+function setDir(d) {
+  if (d === S.dir) return;
+  S.dir = d;
+  if (S.T != null && !timeChoices().includes(S.T)) S.T = null;
+  syncForm(); clearResults(); closePop();
 }
 function setDistrict(g) {
   if (g === S.g) return;
-  S.g = g; S.q = null;
-  markDistrict(); fillOrig(); fillHosp();
-  loadDay(); renderMid();
+  S.g = g; S.stop = "";
+  $("dist").value = g;
+  syncForm(); clearResults();
   if (map) map.setFilter("hull-l", ["==", ["get", "g"], g]);
-  fitTo([$("orig").value, $("hosp").value]);
+  if (!$("pop").hidden) openPop($("pop").dataset.kind);
+  const ids = S.data.districts[g].stops, st = S.data.stops;
+  fitCoords(ids.map((s) => [st[s].lon, st[s].lat]));
+}
+function setDate(i) {
+  S.di = i;
+  loadDay(); syncForm(); clearResults();
+}
+function setStop(id) {
+  const g = trip.stopG(id);
+  if (g !== S.g) { S.g = g; $("dist").value = g; if (map) map.setFilter("hull-l", ["==", ["get", "g"], g]); }
+  S.stop = id; syncForm(); clearResults(); focusSel();
+}
+function setHosp(id) { S.hosp = id; syncForm(); clearResults(); focusSel(); }
+function focusSel() {
+  const cs = [];
+  if (S.stop) cs.push(xy(S.stop));
+  if (S.hosp) cs.push(xy("h" + S.hosp));
+  if (cs.length) fitCoords(cs, cs.length === 1 ? 15 : 15);
 }
 
-// ------------------------------------------------------------------ 候補の表示
+// ------------------------------------------------------------------ 候補
 function clearResults() {
-  S.go = S.back = S.goSel = S.backSel = null;
-  setView("info");
+  S.res = S.sel = null;
+  setView("form");
   drawTrace();
 }
-function sname(id) { return esc((S.data.stops[id] || {}).name || id); }
-function hname(id) { const h = S.data.hospitals.find((x) => x.id === id); return esc(h ? h.name : sname(id)); }
+function placeName(k) {
+  if (!k) return "";
+  if (k[0] === "h") return medOf(k.slice(1)).name;
+  if (k[0] === "s") { const s = S.data.spots[+k.slice(1)]; return s.name || s.label; }
+  return stopName(k);
+}
+const stName = (i) => S.rail.stations[i].name;
+
+function search(ev) {
+  ev && ev.preventDefault();
+  closePop();
+  const r = S.dir === "go" ? trip.go(S.stop, S.hosp, S.T) : trip.back(S.hosp, S.stop, S.T);
+  S.res = r;
+  setView("list");
+  const H = medOf(S.hosp), go = S.dir === "go";
+  $("list-title").innerHTML = go ? `<span class="ic ic-hospital-building"></span>行きの経路をえらぶ` : `<span class="ic ic-home-variant"></span>帰りの経路をえらぶ`;
+  $("list-sub").textContent = go ? `${stopName(S.stop)} → ${H.name}、${fmt(S.T)} までに着く経路です。`
+    : `${H.name} → ${stopName(S.stop)}、${fmt(S.T)} に病院を出る経路です。`;
+  const notes = [];
+  const hn = hospNote(H);
+  if (hn) notes.push(`<p class="note-card warn"><span class="ic ic-information-outline"></span>${hn}</p>`);
+  if (r.mode === "rail") notes.push(`<p class="note-card"><span class="ic ic-train"></span>${esc(H.name)}は${S.data.districts[H.g].name}にあり、${S.data.districts[r.g].name}のかわまるでは行けません（地区をまたいで乗れません）。電車と組み合わせます。</p>`);
+  if (r.none) notes.push(`<p class="note-card bad">${noneText(r, H)}</p>`);
+  $("notes").innerHTML = notes.join("");
+  $("list").innerHTML = r.opts.map((o, i) => card(o, i)).join("");
+  $("list").querySelectorAll(".opt").forEach((b) => b.onclick = () => select(+b.dataset.i));
+  const first = r.opts.findIndex((o) => o.kind !== "walkonly");
+  const sp = r.opts.findIndex((o) => o.kind === "spot");
+  const big = first >= 0 && (r.opts[first].gap || 0) > 20 * 60;
+  select(big && sp >= 0 ? sp : Math.max(0, first));
+  fitCoords(S.coords);
+}
+function noneText(r, H) {
+  const by = r.mode === "rail" ? "デマンドバスと電車" : "デマンドバス";
+  if (r.reason === "noStop") return `${esc(H.name)}のまわり ${r.mode === "rail" ? "800m に、かわまるのバス停も駅もありません" : "800m に、かわまるのバス停がありません"}。${by}では行けないので、${r.opts.some((o) => o.kind === "taxi") ? "タクシー" : "歩き"}をおすすめします。`;
+  return `${S.dir === "go" ? `${fmt(r.T)} に間に合う` : `${fmt(r.T)} から 1 時間のあいだに乗れる`}${by}の便は、ほかの予約で埋まっています。${r.opts.some((o) => o.kind === "taxi") ? "タクシー" : "歩き"}か、時刻を変えてさがしてください。`;
+}
+// 医療情報ネットの休診日・外来受付時間とくらべる
+function hospNote(H) {
+  const d = day(), dt = +d.date.slice(6), w = WD.indexOf(d.wd), nth = Math.ceil(dt / 7);
+  const key = HOLIDAYS.has(d.date) ? "祝" : d.wd;
+  const slots = H.rc[key] || H.sh[key] || [];
+  const closed = HOLIDAYS.has(d.date) ? H.hol === "0" : (H.ow[w] === "0" || H.wk[(nth - 1) * 7 + w] === "0" || !slots.length);
+  const md = `${+d.date.slice(4, 6)}月${dt}日（${d.wd}${HOLIDAYS.has(d.date) ? "・祝" : ""}）`;
+  if (closed) return `医療情報ネットでは、${esc(H.name)}は${md}は休診です。`;
+  if (S.dir !== "go") return "";
+  const hm = (s) => Engine.hm(s);
+  const ok = slots.some(([a, b]) => S.T >= hm(a) - 30 * 60 && S.T <= hm(b));
+  const lab = H.rc[key] ? "外来受付" : "診療時間";
+  if (!ok) return `${fmt(S.T)} は${esc(H.name)}の${lab}（${slots.map(([a, b]) => `${a}〜${b}`).join("、")}）の外です。`;
+  return "";
+}
 
 function stepRows(steps) {
   const li = (tm, ic, body, cls = "") => `<li class="${cls}"><span class="tm">${tm}</span><span class="ic ic-${ic}"></span><span>${body}</span></li>`;
   return "<ul class=\"steps\">" + steps.map((s) => {
     switch (s.type) {
-      case "board": return li(fmt(s.t), "van", `<b>${sname(s.stop)}</b> で乗る`);
-      case "alight": return li(fmt(s.t), "bus-stop", `${sname(s.stop)} で降りる${s.home ? "（家の近く）" : ""}`);
+      case "start": return li(fmt(s.t), s.place[0] === "h" ? "hospital-building" : "bus-stop", `<b>${esc(placeName(s.place))}</b> を出る`);
+      case "goal": return li(fmt(s.t), s.place[0] === "h" ? "hospital-building" : "home-variant", `<b>${esc(placeName(s.place))}</b> に着く`);
+      case "board": return li(fmt(s.t), "van", `<b>${esc(stopName(s.stop))}</b> でかわまるに乗る`);
+      case "alight": return li(fmt(s.t), "bus-stop", `${esc(stopName(s.stop))} で降りる`);
       case "walk": return s.sec > 0 ? li("", "walk", `歩いて ${mins(s.sec)} 分`, "walk") : "";
+      case "taxi": return li("", "taxi", `タクシーで約 ${mins(s.sec)} 分（約 ${s.km.toFixed(1)}km）`, "walk");
+      case "waitstop": return s.sec > 5 * 60 ? li("", "clock-outline", `乗り場で ${dur(s.sec)} 待つ`, "walk") : "";
+      case "station": return li(fmt(s.t), "train", `${esc(stName(s.st))}へ（改札・ホームまで約 ${mins(s.sec)} 分）`);
+      case "train": return li(fmt(s.t), "train", `<b style="color:${s.color}">${esc(s.lineName)}</b> ${esc(s.ttype)}・${esc(s.dest)}行き<br><span class="spotname">${esc(stName(s.from))} → ${esc(stName(s.to))}（${fmt(s.t1)} 着）</span>`, "train");
+      case "transfer": return li("", "walk", `川越駅で乗り換え（約 ${mins(s.sec)} 分）`, "walk");
+      case "exit": return li(fmt(s.t), "train", `${esc(stName(s.st))} で降りる`);
       case "stay": {
         const sp = s.spot;
         return li(`${fmt(s.t)}〜`, GROUP_ICON[sp.group], `<b>${esc(sp.label)}</b>で ${dur(s.sec)}${sp.name ? `<br><span class="spotname">${esc(sp.name)}</span>` : ""}`, `c-${sp.group}`);
       }
-      case "hospital":
-        if (s.end) return li(fmt(s.t), "hospital-building", `診察が終わる（見込み）`);
-        return li(fmt(s.t), "hospital-building", `<b>${hname(s.h)}</b> に着く` + (s.until - s.t > 5 * 60 ? `<br><span class="spotname">待合室で ${dur(s.until - s.t)} 待つ</span>` : ""));
+      case "hospital": return li(fmt(s.t), "hospital-building", `<b>${esc(medOf(s.h).name)}</b> に着く` + (s.until - s.t > 5 * 60 ? `<br><span class="spotname">待合室で ${dur(s.until - s.t)} 待つ</span>` : ""));
+      case "hospout": return li(fmt(s.t), "hospital-building", `<b>${esc(medOf(s.h).name)}</b> を出る`);
     }
     return "";
   }).join("") + "</ul>";
 }
-
-function goCard(o, i, q) {
-  let tag, ttl, note = "";
-  if (o.kind === "direct") {
-    const g = mins(o.gap);
-    tag = g <= 10 ? `<span class="tag safe">ちょうど着く</span>` : `<span class="tag">${dur(o.gap)}早く着く</span>`;
-    ttl = g <= 10 ? `病院へまっすぐ。${fmt(o.bus.td + o.bus.walkXH)} に着く` : `病院へまっすぐ。待合室で ${dur(o.gap)} 待つ`;
-  } else {
-    const G = GROUPS[o.group];
-    tag = `<span class="tag ${o.group}"><span class="ic ic-${G.icon}"></span>${G.label}</span>`;
-    ttl = `${esc(o.spot.label)}で ${dur(o.stay - 120)} 過ごしてから病院へ`;
+function card(o, i) {
+  const go = S.dir === "go";
+  let tag = "", ttl = "", note = "";
+  const where = o.at === "station" ? `${stName(o.station)}のまわり` : go ? "病院のまわり" : "病院のまわり";
+  switch (o.kind) {
+    case "direct":
+      if (go) {
+        const g = mins(o.gap);
+        tag = g <= 10 ? `<span class="tag safe">ちょうど着く</span>` : `<span class="tag">${dur(o.gap)}早く着く</span>`;
+        ttl = g <= 10 ? `病院へまっすぐ` : `病院へまっすぐ。待合室で ${dur(o.gap)} 待つ`;
+        if (g > 10) note = `<p class="note">${fmt(S.T)} にちょうど着く便は、ほかの予約で埋まっています。</p>`;
+      } else {
+        const g = mins(o.gap);
+        tag = g <= 10 ? `<span class="tag safe">すぐ乗れる</span>` : `<span class="tag">${dur(o.gap)}待つ</span>`;
+        ttl = g <= 10 ? `病院を出てすぐ乗る` : `乗り場で ${dur(o.gap)} 待って乗る`;
+        if (g > 10) note = `<p class="note">すぐあとの便は、ほかの予約で埋まっています。</p>`;
+      }
+      break;
+    case "rail": {
+      const tr = o.steps.filter((s) => s.type === "train");
+      tag = `<span class="tag rail"><span class="ic ic-train"></span>電車を使う</span>`;
+      ttl = `${tr.map((t) => esc(t.lineName)).filter((v, k, a) => a.indexOf(v) === k).join("・")}で ${esc(stName(tr[0].from))} → ${esc(stName(tr[tr.length - 1].to))}`;
+      if (mins(o.gap) > 10) note = `<p class="note">${go ? `駅で電車を ${dur(o.gap)} 待ちます。ちょうど電車に乗れる便は、ほかの予約で埋まっています。` : `駅でかわまるを ${dur(o.gap)} 待ちます。電車を降りてすぐの便は、ほかの予約で埋まっています。`}</p>`;
+      break;
+    }
+    case "spot": {
+      const G = GROUPS[o.group];
+      tag = `<span class="tag ${o.group}"><span class="ic ic-${G.icon}"></span>${G.label}</span>` + (o.rail ? ` <span class="tag rail"><span class="ic ic-train"></span>電車</span>` : "");
+      ttl = `${where}の${esc(o.spot.s.label)}で ${dur(o.stay)} 過ごす`;
+      break;
+    }
+    case "walkonly":
+      tag = `<span class="tag safe"><span class="ic ic-walk"></span>歩いて行ける</span>`;
+      ttl = `歩いて約 ${mins(o.sec)} 分（約 ${Math.round(o.m / 10) * 10}m）`;
+      break;
+    case "walkfar":
+      tag = `<span class="tag risk"><span class="ic ic-walk"></span>歩く</span>`;
+      ttl = `歩いて約 ${mins(o.sec)} 分（約 ${(o.m / 1000).toFixed(1)}km）`;
+      note = `<p class="note">少し遠いので、無理のないように。</p>`;
+      break;
+    case "taxi":
+      tag = `<span class="tag risk"><span class="ic ic-taxi"></span>タクシー</span>`;
+      ttl = `タクシーで約 ${mins(o.sec)} 分（約 ${o.km.toFixed(1)}km）`;
+      note = `<p class="note">時間と距離は目安です。料金はタクシー会社に確かめてください。</p>`;
+      break;
   }
-  if (!o.withinW) note = `<p class="note warn">1 時間より早く着きます</p>`;
-  if (o.kind === "direct" && i === 0 && mins(o.gap) > 10) note += `<p class="note">${breakIn(o.bus.td, q.T) || `${fmt(q.T)} にちょうど着く便は、ほかの予約で埋まっています。`}</p>`;
-  return `<button class="opt" data-i="${i}">${tag}<div class="ttl">${ttl}</div>${note}${stepRows(o.steps)}</button>`;
+  return `<button class="opt ${o.kind}" data-i="${i}">${tag}<div class="ttl">${ttl}</div>${note}${stepRows(o.steps)}</button>`;
 }
-function backCard(o, i, q) {
-  let tag, ttl, note = "";
-  const sl = mins(o.slack);
-  const risk = sl < 15 ? `<span class="tag risk">診察がのびると乗り遅れる</span>` : `<span class="tag safe">診察が ${dur(o.slack)} のびても間に合う</span>`;
-  if (o.kind === "now") {
-    ttl = `終わってすぐ帰る。${fmt(o.bus.tp)} に乗る`;
-    tag = `<span class="tag">すぐ帰る</span> ${risk}`;
-    if (mins(o.wait) > 10) note = `<p class="note">${breakIn(q.T + q.Dur, o.bus.tp) || "すぐあとの便はほかの予約で埋まっています。"}${dur(o.wait)}待ちます。</p>`;
-  } else if (o.kind === "wait") {
-    ttl = `余裕をもって ${fmt(o.bus.tp)} に乗る。病院で待つ`;
-    tag = risk;
-  } else {
-    const G = GROUPS[o.group];
-    ttl = `${esc(o.spot.label)}で ${dur(o.stay)} 過ごして ${fmt(o.bus.tp)} に乗る`;
-    tag = `<span class="tag ${o.group}"><span class="ic ic-${G.icon}"></span>${G.label}</span> ${risk}`;
-  }
-  return `<button class="opt" data-i="${i}">${tag}<div class="ttl">${ttl}</div>${note}${stepRows(o.steps)}</button>`;
-}
-
-// 待ってもよい時間は 1 時間で固定（行きは 1 時間まで早く着いてよい、帰りは 1 時間まで遅らせてよい）
-const W_FIXED = 3600;
-function search(ev) {
-  ev && ev.preventDefault();
-  const o = $("orig").value, h = $("hosp").value, g = S.g;
-  const q = { o, h, g, T: +$("arr").value, Dur: +$("dur").value, W: W_FIXED };
-  S.q = q;
-  q.P = new Planner(S.data, S.eng[g]);
-  S.res = [{ W: W_FIXED, go: q.P.outbound(S.base[g], o, h, q.T, W_FIXED) }];
-  showW(0);
-  fitCoords(S.coords);
-}
-function showW(k) {
-  const q = S.q, r = S.res[k], o = q.o, h = q.h;
-  q.W = r.W;
-  const go = r.go;
-  S.go = go;
-  S.goSel = S.backSel = null;
-  setView("go");
-  $("out-sub").textContent = `${S.data.stops[o].name} → ${S.data.stops[h].name}、${fmt(q.T)} までに着く便です。`;
-  if (go.none) {
-    const a = go.alt || {};
-    $("out-list").innerHTML = `<div class="empty">${fmt(q.T)} に間に合う便は、1 時間前までに着く便の中ではほかの予約で埋まっています。` +
-      (a.earlier ? `<br>・<b>${fmt(a.earlier.td)} 着</b>（${dur(q.T - a.earlier.td)}前）の便なら取れます。` : "") +
-      (a.later ? `<br>・<b>${fmt(a.later.td)} 着</b>の便なら取れます（病院の予約の時刻を動かせるなら）。` : "") + `</div>`;
-    $("to-back").disabled = true;
-    drawTrace(); return;
-  }
-  $("to-back").disabled = false;
-  $("out-list").innerHTML = go.opts.map((x, i) => goCard(x, i, q)).join("");
-  $("out-list").querySelectorAll(".opt").forEach((b) => b.onclick = () => selectGo(+b.dataset.i));
-  const sp = go.opts[0].gap > 20 * 60 ? go.opts.findIndex((x) => x.kind === "spot") : -1;
-  selectGo(sp > 0 ? sp : 0);
-}
-function selectGo(i) {
-  if (S.goSel !== S.go.opts[i]) S.backSel = null;   // 行きを変えたら帰りは選び直し
-  S.goSel = S.go.opts[i];
-  $("out-list").querySelectorAll(".opt").forEach((b) => b.classList.toggle("sel", +b.dataset.i === i));
+function select(i) {
+  S.sel = S.res.opts[i];
+  $("list").querySelectorAll(".opt").forEach((b) => b.classList.toggle("sel", +b.dataset.i === i));
   drawTrace();
 }
-// 帰りの候補（選んだ行きの便を入れた運行に差し込む）
-function showBack() {
-  const q = S.q, end = q.T + q.Dur;
-  const back = q.P.inbound(S.goSel.bus.plan, q.o, q.h, end, q.W);
-  const keep = S.backSel && S.back === back;
-  S.back = back;
-  setView("back");
-  $("back-sub").textContent = `診察が ${fmt(end)} ごろに終わる見込みとして、${fmt(end)}〜${fmt(end + q.W)} に出る便をさがしました。`;
-  if (back.none) {
-    $("back-list").innerHTML = `<div class="empty">この時間帯の帰りの便は、ほかの予約で埋まっています。` +
-      (back.next ? `<br>次に取れるのは <b>${fmt(back.next.tp)} 発</b>です。` : `<br>この日はもう取れません。`) + `</div>`;
-    S.backSel = null; $("to-all").disabled = true; drawTrace(); return;
-  }
-  $("to-all").disabled = false;
-  $("back-list").innerHTML = back.opts.map((x, k) => backCard(x, k, q)).join("");
-  $("back-list").querySelectorAll(".opt").forEach((b) => b.onclick = () => selectBack(+b.dataset.i));
-  const safe = back.opts.findIndex((x) => x.kind === "spot" && mins(x.slack) >= 15);
-  selectBack(keep ? back.opts.indexOf(S.backSel) : (safe >= 0 ? safe : 0));
-  fitCoords(S.coords);
-}
-function selectBack(i) {
-  S.backSel = S.back.opts[i];
-  $("back-list").querySelectorAll(".opt").forEach((b) => b.classList.toggle("sel", +b.dataset.i === i));
-  drawTrace();
-}
-// 経路全体（行き → 病院 → 帰り）
-// 経路全体（行き → 病院 → 帰り）を、乗換案内の結果のような縦の時系列で出す
-function routeItems(q, g, b) {
+
+// 経路全体を、乗換案内の結果のような縦の時系列で出す
+function routeItems(o) {
   const items = [];
-  const node = (key, o) => {
+  const node = (key, x) => {
     const last = items[items.length - 1];
-    if (last && last.kind === "node" && last.key === key) {   // 同じ場所が続いたら 1 つにまとめる
-      if (o.dep != null) last.dep = o.dep;
-      last.subs.push(...(o.subs || []));
-      last.tags = [...new Set([...last.tags, ...(o.tags || [])])];
-      if (o.type === "hosp") { last.type = "hosp"; last.name = o.name; }
+    if (last && last.kind === "node" && last.key === key) {
+      if (x.dep != null) last.dep = x.dep;
+      if (last.arr == null && x.arr != null) last.arr = x.arr;
+      last.subs.push(...(x.subs || []));
+      last.tags = [...new Set([...last.tags, ...(x.tags || [])])];
       return last;
     }
-    const n = Object.assign({ kind: "node", key, subs: [], tags: [], arr: null, dep: null }, o);
+    const n = Object.assign({ kind: "node", key, subs: [], tags: [], arr: null, dep: null }, x);
     items.push(n); return n;
   };
-  const leg = (steps, color, legName) => {
-    let boardT = null;
-    for (const st of steps) {
-      if (st.type === "board") {
-        node(st.stop, { name: sname(st.stop), dep: st.t, tags: ["乗車"], type: "stop" });
-        boardT = st.t;
-      } else if (st.type === "alight") {
-        items.push({ kind: "seg", mode: "bus", color, t0: boardT, t1: st.t, legName });
-        node(st.stop, { name: sname(st.stop), arr: st.t, tags: [st.home ? "降車（家の近く）" : "降車"], type: st.home ? "end" : "stop" });
-      } else if (st.type === "walk") {
-        if (st.sec > 0) items.push({ kind: "seg", mode: "walk", color, sec: st.sec });
-      } else if (st.type === "stay") {
-        const sp = st.spot;
-        node("spot:" + S.data.spots.indexOf(sp), { name: sp.name || sp.label, arr: st.t, dep: st.t + st.sec, type: "spot", group: sp.group,
-          tags: ["寄り道"], subs: [`<span class="c-${sp.group}"><span class="ic ic-${GROUP_ICON[sp.group]}"></span>${esc(sp.label)}で ${dur(st.sec)} 過ごす</span>`] });
-      } else if (st.type === "hospital") {
-        if (st.end) node(q.h, { name: hname(q.h), type: "hosp", subs: [], tags: [] });
-        else node(q.h, { name: hname(q.h), arr: st.t, type: "hosp", tags: ["病院"],
-          subs: (st.until - st.t > 5 * 60 ? [`待合室で ${dur(st.until - st.t)} 待つ`] : []).concat([`診察 ${fmt(q.T)}〜${fmt(q.T + q.Dur)}（見込み）`]) });
+  const color = S.dir === "go" ? ME : BACK;
+  let board = null;
+  for (const s of o.steps) {
+    switch (s.type) {
+      case "start": node(s.place, { name: placeName(s.place), dep: s.t, type: s.place[0] === "h" ? "hosp" : "stop" }); break;
+      case "goal": node(s.place, { name: placeName(s.place), arr: s.t, type: s.place[0] === "h" ? "hosp" : "stop" }); break;
+      case "board": node(s.stop, { name: stopName(s.stop), dep: s.t, tags: ["乗車"], type: "stop" }); board = s; break;
+      case "alight":
+        items.push({ kind: "seg", mode: "bus", color, t0: board.t, t1: s.t, g: board.g });
+        node(s.stop, { name: stopName(s.stop), arr: s.t, tags: ["降車"], type: "stop" }); break;
+      case "waitstop": if (s.sec > 5 * 60) node(s.stop, { name: stopName(s.stop), arr: s.t, type: "stop", subs: [`乗り場で ${dur(s.sec)} 待つ`] }); break;
+      case "walk": if (s.sec > 0) items.push({ kind: "seg", mode: "walk", color, sec: s.sec }); break;
+      case "taxi": items.push({ kind: "seg", mode: "taxi", color: "#495057", sec: s.sec, km: s.km }); break;
+      case "station": items.push({ kind: "seg", mode: "walk", color, sec: s.sec, label: "駅の改札・ホームへ" }); break;
+      case "exit": items.push({ kind: "seg", mode: "walk", color, sec: PLAT, label: "改札を出る" }); break;
+      case "transfer": items.push({ kind: "seg", mode: "walk", color, sec: s.sec, label: "川越駅で JR と東武を乗り換え" }); break;
+      case "train":
+        node("st" + s.from, { name: stName(s.from), dep: s.t, tags: ["乗車"], type: "station" });
+        items.push({ kind: "seg", mode: "train", color: s.color, t0: s.t, t1: s.t1, s });
+        node("st" + s.to, { name: stName(s.to), arr: s.t1, tags: ["降車"], type: "station" });
+        break;
+      case "stay": {
+        const sp = s.spot;
+        node(s.key, { name: sp.name || sp.label, arr: s.t, dep: s.t + s.sec, type: "spot", group: sp.group, tags: ["寄り道"],
+          subs: [`<span class="c-${sp.group}"><span class="ic ic-${GROUP_ICON[sp.group]}"></span>${esc(sp.label)}で ${dur(s.sec)} 過ごす</span>`] });
+        break;
       }
+      case "hospital":
+        node("h" + s.h, { name: medOf(s.h).name, arr: s.t, type: "hosp", tags: ["病院"], subs: s.until - s.t > 5 * 60 ? [`待合室で ${dur(s.until - s.t)} 待つ`] : [] }); break;
+      case "hospout": node("h" + s.h, { name: medOf(s.h).name, dep: s.t, type: "hosp", tags: ["病院"] }); break;
     }
-  };
-  leg(g.steps, ME, "行き");
-  leg(b.steps, BACK, "帰り");
-  // 病院を出る時刻（帰りの最初の動きの時刻）
-  const hn = items.find((x) => x.kind === "node" && x.type === "hosp");
-  if (hn && hn.dep == null) {
-    const k = items.indexOf(hn), nx = items[k + 1];
-    if (nx && nx.kind === "seg" && nx.mode === "walk") hn.dep = q.T + q.Dur;
-    else hn.dep = b.bus.tp;
-    if (b.kind === "wait" || (b.kind === "now" && b.bus.tp - (q.T + q.Dur) > 5 * 60 && b.bus.y === q.h)) hn.subs.push(`病院で ${dur(b.bus.tp - (q.T + q.Dur))} 待つ`);
   }
   return items;
 }
 function showAll() {
-  const q = S.q, g = S.goSel, b = S.backSel;
+  const o = S.sel;
   setView("all");
-  const items = routeItems(q, g, b);
-  const t0 = g.bus.tp, t1 = b.bus.td;
-  const walk = items.filter((x) => x.mode === "walk").reduce((a, x) => a + x.sec, 0);
+  const items = routeItems(o);
+  const walk = items.filter((x) => x.mode === "walk" && !x.label).reduce((a, x) => a + x.sec, 0);
+  const nBus = items.filter((x) => x.mode === "bus").length, nTr = items.filter((x) => x.mode === "train").length;
   const nSpot = items.filter((x) => x.type === "spot").length;
-  const district = S.data.districts[q.g].name;
   const row = (x, i) => {
     if (x.kind === "seg") {
       if (x.mode === "bus") return `<div class="rt-seg bus"><div class="rt-t"></div><div class="rt-rail"><i style="background:${x.color}"></i></div>
-        <div class="rt-body"><div class="rt-mode" style="color:${x.color}"><span class="ic ic-van"></span>デマンドバス かわまる ${esc(district)}<span class="rt-leg" style="background:${x.color}">${x.legName}</span></div>
+        <div class="rt-body"><div class="rt-mode" style="color:${x.color}"><span class="ic ic-van"></span>デマンドバス かわまる ${esc(S.data.districts[x.g].name)}</div>
         <div class="rt-mt">${fmt(x.t0)} 発 → ${fmt(x.t1)} 着（${mins(x.t1 - x.t0)}分）・予約して乗る</div></div></div>`;
+      if (x.mode === "train") return `<div class="rt-seg train"><div class="rt-t"></div><div class="rt-rail"><i style="background:${x.color}"></i></div>
+        <div class="rt-body"><div class="rt-mode" style="color:${x.color}"><span class="ic ic-train"></span>${esc(x.s.lineName)} ${esc(x.s.ttype)}・${esc(x.s.dest)}行き</div>
+        <div class="rt-mt">${fmt(x.t0)} 発 → ${fmt(x.t1)} 着（${mins(x.t1 - x.t0)}分）</div></div></div>`;
+      if (x.mode === "taxi") return `<div class="rt-seg bus"><div class="rt-t"></div><div class="rt-rail"><i style="background:${x.color}"></i></div>
+        <div class="rt-body"><div class="rt-mode"><span class="ic ic-taxi"></span>タクシー 約 ${mins(x.sec)}分（約 ${x.km.toFixed(1)}km・目安）</div></div></div>`;
       return `<div class="rt-seg walk"><div class="rt-t"></div><div class="rt-rail"><i style="border-color:${x.color}"></i></div>
-        <div class="rt-body"><div class="rt-mode walk"><span class="ic ic-walk"></span>徒歩 ${mins(x.sec)}分</div></div></div>`;
+        <div class="rt-body"><div class="rt-mode walk"><span class="ic ic-walk"></span>${x.label ? esc(x.label) + " 約" : "徒歩"} ${mins(x.sec)}分</div></div></div>`;
     }
     const end = i === 0 || i === items.length - 1;
-    const ic = x.type === "hosp" ? "hospital-building" : x.type === "spot" ? GROUP_ICON[x.group] : end ? "home-variant" : "bus-stop";
+    const ic = x.type === "hosp" ? "hospital-building" : x.type === "spot" ? GROUP_ICON[x.group] : x.type === "station" ? "train" : end ? "home-variant" : "bus-stop";
     const times = [x.arr != null ? `<b>${fmt(x.arr)}</b>` : "", x.dep != null && x.dep !== x.arr ? `<span>${fmt(x.dep)}</span>` : ""].filter(Boolean);
     return `<div class="rt-node ${x.type}${end ? " end" : ""}"><div class="rt-t">${x.arr == null && x.dep != null ? `<b>${fmt(x.dep)}</b>` : times.join("")}</div>
       <div class="rt-rail"><span class="dot ${x.type}"><span class="ic ic-${ic}"></span></span></div>
       <div class="rt-body"><div class="rt-name">${esc(x.name)}${x.tags.map((t) => `<span class="rt-tag">${t}</span>`).join("")}</div>
       ${x.subs.map((t) => `<div class="rt-sub">${t}</div>`).join("")}</div></div>`;
   };
+  const t0 = o.steps[0].t, t1 = o.steps[o.steps.length - 1].t;
+  const chips = [nBus ? `デマンドバス ${nBus}回` : "", nTr ? `電車 ${nTr}本` : "", walk ? `徒歩 ${mins(walk)}分` : "", nSpot ? `寄り道 ${nSpot}か所` : "", o.kind === "taxi" ? "タクシー" : ""].filter(Boolean);
   $("all-body").innerHTML = `
     <div class="rt-head">
       <div class="rt-time">${fmt(t0)} <span class="ar">→</span> ${fmt(t1)}</div>
-      <div class="rt-dur">${dur(t1 - t0)}（病院で ${dur(q.Dur)} の診察をふくむ）</div>
-      <div class="rt-chips"><span>デマンドバス 2回</span><span>徒歩 ${mins(walk)}分</span><span>寄り道 ${nSpot}か所</span>
-        <span class="${mins(b.slack) < 15 ? "risk" : "safe"}">診察が ${dur(b.slack)} のびても帰りに間に合う</span></div>
+      <div class="rt-dur">${dur(t1 - t0)}（${S.dir === "go" ? "行き" : "帰り"}）</div>
+      <div class="rt-chips">${chips.map((c) => `<span>${c}</span>`).join("")}</div>
     </div>
     <div class="rt">${items.map(row).join("")}</div>`;
   drawTrace();
   fitCoords(S.coords);
 }
-// 真ん中のペインの切り替え: info（カレンダーと棒グラフ）／go／back／all
 function setView(v) {
   S.view = v;
-  $("mid").hidden = v === "info";
-  document.querySelector(".app").classList.toggle("res", v !== "info");
-  for (const k of ["go", "back", "all"]) $("v-" + k).hidden = v !== k;
-  const n = { go: 0, back: 1, all: 2 }[v];
-  const can = [!!S.go, !!S.goSel && !S.go.none, !!(S.goSel && S.backSel)];
-  $("stepper").innerHTML = [["go", "1 行きの便"], ["back", "2 帰りの便"], ["all", "3 経路全体"]].map(([k, l], i) =>
-    (i ? `<span class="arrow">›</span>` : "") + `<button data-v="${k}" class="${i === n ? "on" : ""}" ${i <= n || can[i] ? "" : "disabled"}>${l}</button>`).join("") +
-    "";
+  $("mid").hidden = v === "form";
+  document.querySelector(".app").classList.toggle("res", v !== "form");
+  $("v-list").hidden = v !== "list"; $("v-all").hidden = v !== "all";
+  const n = { list: 0, all: 1 }[v];
+  $("stepper").innerHTML = [["list", S.dir === "go" ? "1 行きの経路" : "1 帰りの経路"], ["all", "2 経路全体"]].map(([k, l], i) =>
+    (i ? `<span class="arrow">›</span>` : "") + `<button data-v="${k}" class="${i === n ? "on" : ""}" ${i === 1 && !S.sel ? "disabled" : ""}>${l}</button>`).join("");
   $("stepper").querySelectorAll("button").forEach((x) => x.onclick = () => {
-    const to = x.dataset.v;
-    if (to === "back") showBack(); else if (to === "all") showAll(); else { setView(to); drawTrace(); if (to === "go") fitCoords(S.coords); }
+    if (x.dataset.v === "all") showAll(); else { setView("list"); drawTrace(); fitCoords(S.coords); }
   });
   $("res-body").scrollTop = 0;
 }
 
-async function icon(name, fg, bg, size = 44, ring = null) {
-  const svg = (await (await fetch(`icons/${name}.svg`)).text()).replace(/currentColor/g, fg).replace(/width="1em" height="1em"/, `width="${size * 0.58}" height="${size * 0.58}"`);
-  const img = new Image();
-  img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
-  await img.decode();
+// ------------------------------------------------------------------ 地図の部品
+async function svgImg(name, color, px) {
+  const svg = (await (await fetch(`icons/${name}.svg`)).text()).replace(/currentColor/g, color).replace(/width="1em" height="1em"/, `width="${px}" height="${px}"`);
+  const img = new Image(); img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg); await img.decode();
+  return img;
+}
+async function icon(name, fg, bg, size = 44, ring = "#fff") {
+  const img = await svgImg(name, fg, size * 0.58);
   const c = document.createElement("canvas"); c.width = c.height = size;
   const x = c.getContext("2d");
   x.beginPath(); x.arc(size / 2, size / 2, size / 2 - 3, 0, Math.PI * 2);
   x.fillStyle = bg; x.fill();
-  x.lineWidth = 3; x.strokeStyle = ring || "#fff"; x.stroke();
+  x.lineWidth = 3; x.strokeStyle = ring; x.stroke();
   x.drawImage(img, size * 0.21, size * 0.21, size * 0.58, size * 0.58);
   return x.getImageData(0, 0, size, size);
 }
-
+// バス停（角丸の四角）
+async function stopIcon(bg) {
+  const size = 30, img = await svgImg("bus-stop", "#fff", 20);
+  const c = document.createElement("canvas"); c.width = c.height = size;
+  const x = c.getContext("2d");
+  x.beginPath(); x.roundRect(3, 3, size - 6, size - 6, 6); x.fillStyle = bg; x.fill(); x.lineWidth = 2.5; x.strokeStyle = "#fff"; x.stroke();
+  x.drawImage(img, 5, 5, 20, 20);
+  return x.getImageData(0, 0, size, size);
+}
+// ピン（丸＋とがり）
+async function pin(name, bg) {
+  const w = 44, h = 56;
+  const img = await svgImg(name, "#fff", 24);
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const x = c.getContext("2d");
+  x.beginPath(); x.moveTo(w / 2, h - 2); x.lineTo(w / 2 - 11, 34); x.lineTo(w / 2 + 11, 34); x.closePath();
+  x.arc(w / 2, 21, 19, 0, Math.PI * 2);
+  x.fillStyle = bg; x.fill(); x.lineWidth = 2.5; x.strokeStyle = "#fff"; x.stroke();
+  x.beginPath(); x.arc(w / 2, 21, 16.5, 0, Math.PI * 2); x.fillStyle = bg; x.fill();
+  x.drawImage(img, w / 2 - 12, 9, 24, 24);
+  return x.getImageData(0, 0, w, h);
+}
 // 背景地図: OpenFreeMap の positron から、水・公園・道路・鉄道と市町の名前だけを残す
 const KEEP = new Set(["background", "park", "water", "waterway",
   "highway_minor", "highway_major_casing", "highway_major_inner", "highway_major_subtle",
@@ -486,138 +557,174 @@ async function baseStyle() {
   return st;
 }
 
-// ------------------------------------------------------------------ 歩く道（OSRM の徒歩で取った形。なければまっすぐ）
-// a, b は乗り場の id か、寄り道の場所（spots の要素）
-function walkPath(a, b) {
-  const key = (x) => typeof x === "string" ? x : "s" + S.data.spots.indexOf(x);
-  const xy = (x) => typeof x === "string" ? [S.data.stops[x].lon, S.data.stops[x].lat] : [x.lon, x.lat];
-  const ka = key(a), kb = key(b), enc = S.walk[ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`];
-  let pts = enc ? decode(enc) : [];
-  if (enc && ka > kb) pts.reverse();
-  return [xy(a)].concat(pts, [xy(b)]);
-}
-
 // ------------------------------------------------------------------ 地図
-let map;
+let map, popup;
 function drawTrace() {
   if (!map || !map.getSource("route")) return;
   const F = [], marks = [];
-  const st = S.data.stops, P = (id) => [st[id].lon, st[id].lat];
-  const v = S.view || "info", q = S.q;
-  const go = v === "go" || v === "all" ? S.goSel : null, back = v === "back" || v === "all" ? S.backSel : null;
-  const o = q ? q.o : $("orig").value, h = q ? q.h : $("hosp").value, g = S.g;
-  const plan = back ? back.bus.plan : go && go.bus.plan;
-  const line = (c, kind, leg) => c.length > 1 && F.push({ type: "Feature", geometry: { type: "LineString", coordinates: c }, properties: { kind, leg } });
-  const spots = [];
-  if (go && plan) {
-    line(busPath(g, plan, go.bus.r), "bus", "go");
-    const X = P(go.bus.x), H = P(h);
-    if (go.spot) { line(walkPath(go.bus.x, go.spot), "walk", "go"); line(walkPath(go.spot, h), "walk", "go"); spots.push(go.spot); }
-    else if (go.bus.x !== h) line(walkPath(go.bus.x, h), "walk", "go");
-  } else if (v === "info" && S.data.stops[o] && S.data.stops[h]) {
-    line(seg(g, o, h).pts, "bus", "pre");   // さがす前: 出発地から病院への道
+  const leg = S.dir === "go" ? "go" : "back";
+  const line = (c, kind, extra = {}) => c.length > 1 && F.push({ type: "Feature", geometry: { type: "LineString", coordinates: c }, properties: Object.assign({ kind, leg }, extra) });
+  const o = S.sel;
+  if (o) {
+    for (const b of o.legs) line(busPath(b.g, b.plan, b.r), "bus");
+    for (const s of o.steps) {
+      if (s.type === "walk" && s.sec > 0) line(walkPath(s.from, s.to), "walk");
+      if (s.type === "train") line(railPath(s.from, s.to), "train", { color: s.color });
+      if (s.type === "taxi") line([xy(s.from), xy(s.to)], "taxi");
+      if (s.type === "stay") marks.push(pt([s.spot.lon, s.spot.lat], { icon: "pin-" + s.spot.group, label: s.spot.name || s.spot.label }));
+      if (s.type === "train") {
+        for (const k of [s.from, s.to]) { const st = S.rail.stations[k]; marks.push(pt([st.lon, st.lat], { icon: "pin-train", label: st.name })); }
+      }
+    }
   }
-  if (back && plan) {
-    line(busPath(g, plan, back.bus.r), "bus", "back");
-    const Y = P(back.bus.y), H = P(h);
-    if (back.spot) { line(walkPath(h, back.spot), "walk", "back"); line(walkPath(back.spot, back.bus.y), "walk", "back"); spots.push(back.spot); }
-    else if (back.bus.y !== h) line(walkPath(h, back.bus.y), "walk", "back");
-  }
-  marks.push(pt(P(o), { icon: "pin-home", label: st[o].name }));
-  marks.push(pt(P(h), { icon: "pin-hosp", label: hname(h) }));
-  for (const s of spots) marks.push(pt([s.lon, s.lat], { icon: "pin-" + s.group, label: s.name || s.label }));
+  if (S.stop) marks.push(pt(xy(S.stop), { icon: S.dir === "go" ? "pin-home" : "pin-home", label: stopName(S.stop) }));
+  if (S.hosp) marks.push(pt(xy("h" + S.hosp), { icon: "pin-hosp", label: medOf(S.hosp).name }));
   S.coords = F.flatMap((f) => f.geometry.coordinates).concat(marks.map((m) => m.geometry.coordinates));
   map.getSource("route").setData(fc(F));
   map.getSource("marks").setData(fc(marks));
-  legend(v);
+  legend();
 }
-function fitTo(ids) {
-  if (!map) return;
-  const st = S.data.stops;
-  const xs = ids.map((i) => st[i].lon), ys = ids.map((i) => st[i].lat);
-  const pad = mapPad(110);
-  map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: pad, maxZoom: 15, duration: 700 });
-}
-// 地図の上に浮かんでいるペインのぶん、左を空けて合わせる
 function mapPad(p) {
-  if (window.innerWidth <= 900) return 50;
-  const box = $("mid").hidden ? $("form").closest(".pane") : $("mid");
-  const left = box.offsetLeft + box.offsetWidth, right = $("side").offsetWidth + 24;
-  return { top: p, bottom: p + 40, left: left + p, right: right + p };
+  if (window.innerWidth <= 900) return 40;
+  const box = $("mid").hidden ? $("pane") : $("mid");
+  const left = box.offsetLeft + box.offsetWidth;
+  return { top: p, bottom: p + 40, left: left + p, right: p + 50 };
 }
-function fitCoords(cs) {
+function fitCoords(cs, maxZoom = 15.5) {
   if (!map || !cs || !cs.length) return;
   const xs = cs.map((c) => c[0]), ys = cs.map((c) => c[1]);
-  const pad = mapPad(60);
-  map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: pad, maxZoom: 15.5, duration: 700 });
+  map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: mapPad(60), maxZoom, duration: 700 });
 }
-function legend(v) {
-  const walk = (c) => `<span class="ln dash" style="background:repeating-linear-gradient(90deg, ${c} 0 5px, transparent 5px 9px)"></span>`;
+function legend() {
+  const c = S.dir === "go" ? ME : BACK;
+  const walk = `<span class="ln dash" style="background:repeating-linear-gradient(90deg, ${c} 0 5px, transparent 5px 9px)"></span>`;
   const rows = [];
-  if (v === "go" || v === "all") rows.push(`<div><span class="ln" style="background:${ME}"></span>行き（車）　${walk(ME)}歩く</div>`);
-  if (v === "back" || v === "all") rows.push(`<div><span class="ln" style="background:${BACK}"></span>帰り（車）　${walk(BACK)}歩く</div>`);
-  $("legend").innerHTML = rows.length
-    ? rows.join("") + `<div class="sub">白い点・破線が流れる向きが進む向き</div>`
-    : `<div><span class="ln" style="background:#495057"></span>出発地から病院への道（車）</div><div class="sub">便をさがすと、行きと帰りの道を出します</div>`;
+  if (S.sel) {
+    rows.push(`<div><span class="ln" style="background:${c}"></span>かわまる　${walk}歩く</div>`);
+    if (S.sel.steps.some((s) => s.type === "train")) rows.push(`<div><span class="ln" style="background:${S.rail.lines.TJ.color}"></span>東武東上線　<span class="ln" style="background:${S.rail.lines.JK.color}"></span>JR川越線</div>`);
+    rows.push(`<div class="sub">白い点・破線が流れる向きが進む向き</div>`);
+  } else {
+    rows.push(`<div><span class="lg-stop" style="background:${COLORS[S.g]}"></span>かわまるのバス停（${esc(S.data.districts[S.g].name)}）</div>`);
+    rows.push(`<div><span class="lg-dot" style="background:#e03131"></span>病院　<span class="lg-dot" style="background:#f783ac"></span>診療所</div>`);
+    rows.push(`<div class="sub">押すと、くわしい情報と登録のボタンが出ます</div>`);
+  }
+  $("legend").innerHTML = rows.join("");
 }
-// ピン（丸＋とがり）
-async function pin(name, bg) {
-  const w = 44, h = 56;
-  const svg = (await (await fetch(`icons/${name}.svg`)).text()).replace(/currentColor/g, "#fff").replace(/width="1em" height="1em"/, `width="24" height="24"`);
-  const img = new Image(); img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg); await img.decode();
-  const c = document.createElement("canvas"); c.width = w; c.height = h;
-  const x = c.getContext("2d");
-  x.beginPath(); x.moveTo(w / 2, h - 2); x.lineTo(w / 2 - 11, 34); x.lineTo(w / 2 + 11, 34); x.closePath();
-  x.arc(w / 2, 21, 19, 0, Math.PI * 2);
-  x.fillStyle = bg; x.fill(); x.lineWidth = 2.5; x.strokeStyle = "#fff"; x.stroke();
-  x.beginPath(); x.arc(w / 2, 21, 16.5, 0, Math.PI * 2); x.fillStyle = bg; x.fill();
-  x.drawImage(img, w / 2 - 12, 9, 24, 24);
-  return x.getImageData(0, 0, w, h);
+function closedText(H) {
+  const out = [];
+  const offW = WD.split("").filter((w, i) => H.ow[i] === "0");
+  if (offW.length) out.push(`${offW.join("・")}曜`);
+  for (let n = 0; n < 5; n++) for (let i = 0; i < 7; i++) if (H.ow[i] === "1" && H.wk[n * 7 + i] === "0") out.push(`第${n + 1}${WD[i]}曜`);
+  if (H.hol === "0") out.push("祝日");
+  return out.join("、");
 }
+function hospPopup(H) {
+  const go = S.dir === "go";
+  const rc = Object.keys(H.rc).length ? H.rc : H.sh, lab = Object.keys(H.rc).length ? "外来受付" : "診療時間";
+  const rows = (WD + "祝").split("").filter((w) => rc[w]).map((w) => `<tr><th>${w}</th><td>${rc[w].map(([a, b]) => `${a.replace(/^0/, "")}〜${b.replace(/^0/, "")}`).join("<br>")}</td></tr>`).join("");
+  const closed = closedText(H);
+  const deps = H.deps.slice(0, 8).join("、") + (H.deps.length > 8 ? ` ほか ${H.deps.length - 8}` : "");
+  return `<div class="pp">
+    <div class="pp-kind" style="color:${H.kind === "病院" ? "#c92a2a" : "#d6336c"}">${H.kind}・${esc(S.data.districts[H.g].name)}</div>
+    <div class="pp-name">${esc(H.name)}</div>
+    <div class="pp-addr">${esc(H.addr)}</div>
+    ${rows ? `<div class="pp-h">${lab}</div><table class="pp-t">${rows}</table>` : ""}
+    ${closed ? `<div class="pp-row"><b>休診</b> ${esc(closed)}</div>` : ""}
+    ${H.other ? `<div class="pp-row"><b>ほかの休み</b> ${esc(H.other)}</div>` : ""}
+    ${deps ? `<div class="pp-row"><b>診療科</b> ${esc(deps)}</div>` : ""}
+    ${H.hp ? `<div class="pp-row"><a href="${esc(H.hp)}" target="_blank" rel="noopener">ホームページ</a></div>` : ""}
+    <div class="pp-src">出典: 医療情報ネット（${jdate(S.med.asof)}時点）</div>
+    <button type="button" class="pp-btn ${go ? "go" : "back"}" data-h="${H.id}">${go ? "目的地に登録する" : "出発地に登録する"}</button></div>`;
+}
+function stopPopup(id) {
+  const go = S.dir === "go", g = trip.stopG(id);
+  const sta = S.rail.stations.find((s) => s.stop === id);
+  return `<div class="pp">
+    <div class="pp-kind" style="color:${COLORS[g]}">かわまるのバス停・${esc(S.data.districts[g].name)}</div>
+    <div class="pp-name">${esc(stopName(id))}</div>
+    ${sta ? `<div class="pp-row"><span class="ic ic-train"></span>${esc(sta.name)}（${esc(S.rail.lines[sta.line].name)}）のそば</div>` : ""}
+    ${g !== S.g ? `<div class="pp-row sub">登録すると、地区が${esc(S.data.districts[g].name)}に切りかわります。</div>` : ""}
+    <button type="button" class="pp-btn ${go ? "go" : "back"}" data-s="${id}">${go ? "出発地に登録する" : "目的地に登録する"}</button></div>`;
+}
+function openPopup(lngLat, html) {
+  if (popup) popup.remove();
+  popup = new maplibregl.Popup({ maxWidth: "300px", offset: 14 }).setLngLat(lngLat).setHTML(html).addTo(map);
+  const el = popup.getElement();
+  el.querySelectorAll(".pp-btn").forEach((b) => b.onclick = () => {
+    if (b.dataset.h) setHosp(b.dataset.h); else setStop(b.dataset.s);
+    popup.remove();
+  });
+}
+
 async function initMap() {
   const d = S.data;
-  map = new maplibregl.Map({
-    container: "map", style: await baseStyle(), center: [139.44, 35.9], zoom: 12,
-    attributionControl: false,
-  });
+  map = new maplibregl.Map({ container: "map", style: await baseStyle(), center: [139.47, 35.9], zoom: 12, attributionControl: false });
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
   map.addControl(new maplibregl.AttributionControl({ compact: false, customAttribution:
-    `データ: <a href="https://ckan.odpt.org/" target="_blank" rel="noopener">公共交通オープンデータセンター</a>（CC BY 4.0）／<a href="about.html">出典の詳細</a>` }), "bottom-right");
+    `データ: <a href="https://ckan.odpt.org/" target="_blank" rel="noopener">公共交通オープンデータセンター</a>・医療情報ネット ほか／<a href="about.html">出典の詳細</a>` }), "bottom-right");
   await new Promise((r) => map.on("load", r));
   map.addImage("pin-home", await pin("home-variant", "#343a40"));
   map.addImage("pin-hosp", await pin("hospital-building", "#c92a2a"));
+  map.addImage("pin-train", await pin("train", "#495057"));
   for (const g of Object.keys(GROUP_ICON)) map.addImage("pin-" + g, await pin(GROUP_ICON[g], GROUP_COLOR[g]));
-  map.addImage("hosp", await icon("hospital-building", "#fff", "#e03131", 30));
+  map.addImage("hosp", await icon("hospital-building", "#fff", "#e03131", 32));
+  map.addImage("clinic", await icon("hospital-building", "#fff", "#f06595", 26));
+  for (const g of Object.keys(d.districts)) map.addImage("stop-" + g, await stopIcon(COLORS[g]));
+  map.addImage("station", await icon("train", "#fff", "#495057", 30));
   for (const s of d.spots) if (!map.hasImage("k-" + s.kind)) map.addImage("k-" + s.kind, await icon(KIND_ICON[s.kind] || "map-marker", "#fff", GROUP_COLOR[s.group], 30));
 
   map.addSource("hull", { type: "geojson", data: fc(Object.entries(d.districts).map(([g, x]) =>
     ({ type: "Feature", geometry: { type: "Polygon", coordinates: [x.hull] }, properties: { g, color: COLORS[g] } }))) });
   map.addLayer({ id: "hull-l", type: "line", source: "hull", filter: ["==", ["get", "g"], S.g],
-    paint: { "line-color": ["get", "color"], "line-width": 1.5, "line-dasharray": [3, 2], "line-opacity": 0.6 } });
+    paint: { "line-color": ["get", "color"], "line-width": 1.5, "line-dasharray": [3, 2], "line-opacity": 0.7 } });
 
-  // 寄り道のスポット・病院（表示を切り替えられる）
-  map.addSource("spots", { type: "geojson", data: fc(d.spots.map((s) => pt([s.lon, s.lat], { icon: "k-" + s.kind, name: s.name || s.label }))) });
-  map.addLayer({ id: "spots", type: "symbol", source: "spots", layout: {
-    "icon-image": ["get", "icon"], "icon-size": ["interpolate", ["linear"], ["zoom"], 12, 0.45, 16, 0.8], "icon-allow-overlap": true,
+  // 鉄道（JR川越線・東武東上線）
+  const rl = [];
+  for (const [k, segs] of Object.entries(S.rail.shapes)) for (const c of segs) rl.push({ type: "Feature", geometry: { type: "LineString", coordinates: c }, properties: { color: S.rail.lines[k].color } });
+  map.addSource("rail", { type: "geojson", data: fc(rl) });
+  map.addLayer({ id: "rail-l", type: "line", source: "rail", layout: { visibility: "none", "line-cap": "round" }, paint: { "line-color": ["get", "color"], "line-width": 3.5, "line-opacity": 0.75 } });
+  map.addSource("stations", { type: "geojson", data: fc(S.rail.stations.filter((s, i, a) => a.findIndex((x) => x.name === s.name) === i)
+    .map((s) => pt([s.lon, s.lat], { name: s.name.replace(/駅$/, "") + "駅" }))) });
+  map.addLayer({ id: "stations", type: "symbol", source: "stations", layout: { visibility: "none",
+    "icon-image": "station", "icon-size": 0.7, "icon-allow-overlap": true, "text-field": ["get", "name"], "text-size": 12, "text-offset": [0, 1.1], "text-anchor": "top", "text-font": ["Noto Sans Bold"] },
+    paint: { "text-color": "#343a40", "text-halo-color": "#fff", "text-halo-width": 1.6 } });
+
+  // 寄り道のスポット（はじめは出さない）
+  map.addSource("spots", { type: "geojson", data: fc(d.spots.map((s) => pt([s.lon, s.lat], { icon: "k-" + s.kind, name: s.name || s.label, label: s.label }))) });
+  map.addLayer({ id: "spots", type: "symbol", source: "spots", layout: { visibility: "none",
+    "icon-image": ["get", "icon"], "icon-size": ["interpolate", ["linear"], ["zoom"], 12, 0.4, 16, 0.75], "icon-allow-overlap": true,
     "text-field": ["step", ["zoom"], "", 15.5, ["get", "name"]], "text-size": 10, "text-offset": [0, 1.3], "text-anchor": "top", "text-font": ["Noto Sans Regular"], "text-optional": true },
     paint: { "text-color": "#495057", "text-halo-color": "#fff", "text-halo-width": 1.2 } });
-  map.addSource("hosps", { type: "geojson", data: fc(d.hospitals.map((x) => pt([d.stops[x.id].lon, d.stops[x.id].lat], { name: x.name }))) });
+  // かわまるのバス停（全部）
+  const stopF = [];
+  for (const [g, x] of Object.entries(d.districts)) for (const s of x.stops) stopF.push(pt([d.stops[s].lon, d.stops[s].lat], { id: s, g, name: d.stops[s].name }));
+  map.addSource("stops", { type: "geojson", data: fc(stopF) });
+  map.addLayer({ id: "stops", type: "symbol", source: "stops", layout: {
+    "icon-image": ["concat", "stop-", ["get", "g"]], "icon-size": ["interpolate", ["linear"], ["zoom"], 11, 0.35, 15, 0.75], "icon-allow-overlap": true,
+    "text-field": ["step", ["zoom"], "", 15, ["get", "name"]], "text-size": 10.5, "text-offset": [0, 1.1], "text-anchor": "top", "text-font": ["Noto Sans Regular"], "text-optional": true },
+    paint: { "text-color": "#343a40", "text-halo-color": "#fff", "text-halo-width": 1.3 } });
+  // 病院・診療所（医療情報ネット）
+  map.addSource("hosps", { type: "geojson", data: fc(S.med.list.map((x) => pt([x.lon, x.lat], { id: x.id, name: x.name, kind: x.kind }))) });
   map.addLayer({ id: "hosps", type: "symbol", source: "hosps", layout: {
-    "icon-image": "hosp", "icon-size": ["interpolate", ["linear"], ["zoom"], 12, 0.6, 16, 0.85], "icon-allow-overlap": true,
-    "text-field": ["step", ["zoom"], "", 13.5, ["get", "name"]], "text-size": 11, "text-offset": [0, 1.2], "text-anchor": "top", "text-font": ["Noto Sans Regular"], "text-optional": true },
+    "icon-image": ["match", ["get", "kind"], "病院", "hosp", "clinic"],
+    "icon-size": ["interpolate", ["linear"], ["zoom"], 11, 0.45, 15, 0.85], "icon-allow-overlap": true,
+    "symbol-sort-key": ["match", ["get", "kind"], "病院", 2, 1],
+    "text-field": ["step", ["zoom"], ["match", ["get", "kind"], "病院", ["get", "name"], ""], 14.5, ["get", "name"]], "text-size": 11, "text-offset": [0, 1.2], "text-anchor": "top", "text-font": ["Noto Sans Regular"], "text-optional": true },
     paint: { "text-color": "#c92a2a", "text-halo-color": "#fff", "text-halo-width": 1.4 } });
 
   // 経路（線の上を白い点が流れて向きを示す）
   map.addSource("route", { type: "geojson", data: fc([]) });
   const legColor = ["match", ["get", "leg"], "go", ME, "back", BACK, "#495057"];
+  map.addLayer({ id: "route-train", type: "line", source: "route", filter: ["==", ["get", "kind"], "train"],
+    layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": 7, "line-opacity": 0.9 } });
+  map.addLayer({ id: "route-taxi", type: "line", source: "route", filter: ["==", ["get", "kind"], "taxi"],
+    layout: { "line-cap": "round" }, paint: { "line-color": "#495057", "line-width": 3, "line-dasharray": [0.5, 2] } });
   map.addLayer({ id: "route-bus", type: "line", source: "route", filter: ["==", ["get", "kind"], "bus"],
-    layout: { "line-cap": "round", "line-join": "round" },
-    paint: { "line-color": legColor, "line-width": 6, "line-offset": ["match", ["get", "leg"], "pre", 0, 3.5], "line-opacity": 0.9 } });
+    layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": legColor, "line-width": 6, "line-opacity": 0.9 } });
   map.addLayer({ id: "route-walk", type: "line", source: "route", filter: ["==", ["get", "kind"], "walk"],
-    layout: { "line-cap": "butt", "line-join": "round" }, paint: { "line-color": legColor, "line-width": 4, "line-offset": ["match", ["get", "leg"], "back", 8, 3], "line-dasharray": [1.5, 1.5] } });
-  map.addLayer({ id: "route-ants", type: "line", source: "route", filter: ["==", ["get", "kind"], "bus"],
-    layout: { "line-cap": "butt", "line-join": "round" },
-    paint: { "line-color": "#fff", "line-width": 2.5, "line-offset": ["match", ["get", "leg"], "pre", 0, 3.5], "line-dasharray": [0, 4, 3] } });
+    layout: { "line-cap": "butt", "line-join": "round" }, paint: { "line-color": legColor, "line-width": 4, "line-dasharray": [1.5, 1.5] } });
+  map.addLayer({ id: "route-ants", type: "line", source: "route", filter: ["in", ["get", "kind"], ["literal", ["bus", "train"]]],
+    layout: { "line-cap": "butt", "line-join": "round" }, paint: { "line-color": "#fff", "line-width": 2.5, "line-dasharray": [0, 4, 3] } });
 
   map.addSource("marks", { type: "geojson", data: fc([]) });
   map.addLayer({ id: "marks", type: "symbol", source: "marks", layout: {
@@ -625,18 +732,31 @@ async function initMap() {
     "text-field": ["get", "label"], "text-size": 12, "text-anchor": "top", "text-offset": [0, 0.3], "text-font": ["Noto Sans Bold"], "text-allow-overlap": false, "text-optional": true },
     paint: { "text-color": "#212529", "text-halo-color": "#fff", "text-halo-width": 1.8 } });
 
-  $("ly-spots").onchange = (e) => map.setLayoutProperty("spots", "visibility", e.target.checked ? "visible" : "none");
-  $("ly-hosps").onchange = (e) => map.setLayoutProperty("hosps", "visibility", e.target.checked ? "visible" : "none");
+  const vis = (ids, on) => ids.forEach((id) => map.setLayoutProperty(id, "visibility", on ? "visible" : "none"));
+  $("ly-stops").onchange = (e) => vis(["stops"], e.target.checked);
+  $("ly-hosps").onchange = (e) => vis(["hosps"], e.target.checked);
+  $("ly-spots").onchange = (e) => vis(["spots"], e.target.checked);
+  $("ly-rail").onchange = (e) => vis(["rail-l", "stations"], e.target.checked);
+
+  map.on("click", "hosps", (e) => { const f = e.features[0]; openPopup(f.geometry.coordinates, hospPopup(medOf(f.properties.id))); });
+  map.on("click", "stops", (e) => {
+    if (map.queryRenderedFeatures(e.point, { layers: ["hosps"] }).length) return;
+    const f = e.features[0]; openPopup(f.geometry.coordinates, stopPopup(f.properties.id));
+  });
+  map.on("click", "spots", (e) => {
+    if (map.queryRenderedFeatures(e.point, { layers: ["hosps", "stops"] }).length) return;
+    const f = e.features[0]; openPopup(f.geometry.coordinates, `<div class="pp"><div class="pp-kind">${esc(f.properties.label)}</div><div class="pp-name">${esc(f.properties.name)}</div><div class="pp-src">出典: OpenStreetMap</div></div>`);
+  });
+  for (const l of ["hosps", "stops", "spots"]) {
+    map.on("mouseenter", l, () => map.getCanvas().style.cursor = "pointer");
+    map.on("mouseleave", l, () => map.getCanvas().style.cursor = "");
+  }
 
   // 白い点を流す（MapLibre の線の破線をずらしていく）
   const SEQ = [[0, 4, 3], [0.5, 4, 2.5], [1, 4, 2], [1.5, 4, 1.5], [2, 4, 1], [2.5, 4, 0.5], [3, 4, 0],
     [0, 0.5, 3, 3.5], [0, 1, 3, 3], [0, 1.5, 3, 2.5], [0, 2, 3, 2], [0, 2.5, 3, 1.5], [0, 3, 3, 1], [0, 3.5, 3, 0.5]];
-  // 歩く道は破線そのものを流す（長さ 1.5 の線と 1.5 のすき間を、少しずつ先へずらす）
   const D = 1.5, G = 1.5, L = D + G;
-  const WSEQ = SEQ.map((_, i) => {
-    const f = (i / SEQ.length) * L;
-    return f < G ? [0, f, D, G - f] : [f - G, G, L - f, 0];
-  });
+  const WSEQ = SEQ.map((_, i) => { const f = (i / SEQ.length) * L; return f < G ? [0, f, D, G - f] : [f - G, G, L - f, 0]; });
   let k = -1;
   const ants = (ts) => {
     const n = Math.floor(ts / 70) % SEQ.length;
@@ -647,22 +767,28 @@ async function initMap() {
 }
 
 async function main() {
-  S.data = await (await fetch("data/kawagoe.json")).json();
+  const get = (p) => fetch(p).then((r) => r.ok ? r.json() : null).catch(() => null);
+  [S.data, S.med, S.rail, S.walk] = await Promise.all([get("data/kawagoe.json"), get("data/med.json"), get("data/rail.json"), get("data/walk.json")]);
+  S.walk = S.walk || { p: {}, c: {} };
   const gs = Object.keys(S.data.districts);
-  const gg = await Promise.all(gs.map((g) => fetch(`data/geom_${g}.json`).then((r) => r.ok ? r.json() : {}).catch(() => ({}))));
-  gs.forEach((g, i) => S.geom[g] = gg[i]);
-  S.walk = await fetch("data/walk.json").then((r) => r.ok ? r.json() : {}).catch(() => ({}));
-  fillForm();
-  $("cal-prev").onclick = () => { const ms = [...new Set(S.data.days.map((x) => x.date.slice(0, 6)))]; S.cal = ms[Math.max(0, ms.indexOf(S.cal) - 1)]; renderCal(); };
-  $("cal-next").onclick = () => { const ms = [...new Set(S.data.days.map((x) => x.date.slice(0, 6)))]; S.cal = ms[Math.min(ms.length - 1, ms.indexOf(S.cal) + 1)]; renderCal(); };
-  loadDay();
-  renderMid();
+  const gg = await Promise.all(gs.map((g) => get(`data/geom_${g}.json`)));
+  gs.forEach((g, i) => S.geom[g] = gg[i] || {});
+  trip = new Trip({ data: S.data, med: S.med, rail: S.rail, walk: S.walk });
+  $("dist").innerHTML = Object.entries(S.data.districts).map(([g, x]) => `<option value="${g}">${esc(x.name)}</option>`).join("");
+  $("dist").value = S.g;
+  $("dist").onchange = () => setDistrict($("dist").value);
+  $("dir").querySelectorAll("button").forEach((b) => b.onclick = () => setDir(b.dataset.d));
+  $("date").onclick = () => $("pop").hidden || $("pop").dataset.kind !== "date" ? openPop("date") : closePop();
+  $("time").onclick = () => $("pop").hidden || $("pop").dataset.kind !== "time" ? openPop("time") : closePop();
+  $("pop-close").onclick = closePop;
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePop(); });
+  syncForm();
   await initMap();
   drawTrace();
-  fitTo([$("orig").value, $("hosp").value]);
+  const ids = S.data.districts[S.g].stops, st = S.data.stops;
+  fitCoords(ids.map((s) => [st[s].lon, st[s].lat]));
   $("form").onsubmit = search;
-  $("to-back").onclick = showBack;
   $("to-all").onclick = showAll;
-  window.S = S; window.map = map; window.READY = true;
+  window.S = S; window.map = map; window.trip = trip; window.READY = true;
 }
 main();

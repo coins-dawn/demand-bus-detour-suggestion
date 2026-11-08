@@ -3,46 +3,43 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>デマンドバス 寄り道シミュレーション</title>
+<title>かわまる 通院寄り道シミュレーション</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header class="top">
-  <h1>デマンドバス 寄り道シミュレーション</h1>
+  <h1>かわまる 通院寄り道シミュレーション</h1>
   <a class="about" href="about.html"><span class="ic ic-information-outline"></span>このサービスについて</a>
 </header>
 <div class="app">
-  <aside class="pane">
-    <div class="dist" id="dist" role="tablist" aria-label="地区"></div>
+  <aside class="pane go" id="pane">
+    <div class="dir" id="dir" role="radiogroup" aria-label="行き・帰り">
+      <button type="button" role="radio" data-d="go" aria-checked="true"><span class="ic ic-hospital-building"></span>行き</button>
+      <button type="button" role="radio" data-d="back" aria-checked="false"><span class="ic ic-home-variant"></span>帰り</button>
+      <span class="knob" aria-hidden="true"></span>
+    </div>
 
     <form id="form" class="card" onsubmit="return false">
-      <label>運行日<select id="day"></select></label>
-      <label>出発地（家の近くの乗り場）<select id="orig"></select></label>
-      <label>病院<select id="hosp"></select></label>
-      <div class="row2">
-        <label>病院に着きたい時刻<select id="arr"></select></label>
-        <label>診察にかかる時間<select id="dur"></select></label>
-      </div>
-      <button type="submit" id="go">便をさがす</button>
+      <label>地区<select id="dist"></select></label>
+      <label><span id="lab-from"></span><select id="from"></select></label>
+      <label><span id="lab-to"></span><select id="to"></select></label>
+      <label>日付<button type="button" id="date" class="pick"></button></label>
+      <label><span id="lab-time"></span><button type="button" id="time" class="pick"></button></label>
+      <p class="hint">地図のバス停や病院を押して選ぶこともできます。</p>
+      <button type="submit" id="go" disabled>便をさがす</button>
     </form>
-
   </aside>
 
   <section class="mid" id="mid" hidden>
-   <div class="mid-res" id="mid-res">
+   <div class="mid-res">
     <div class="stepper" id="stepper"></div>
     <div class="res-body" id="res-body">
-      <section id="v-go">
-        <h2><span class="ic ic-van"></span>行きの便をえらぶ</h2>
-        <p class="sub" id="out-sub"></p>
-        <div id="out-list" class="list"></div>
-        <div class="res-foot"><button id="to-back" class="next">帰りの便を選択にすすむ</button></div>
-      </section>
-      <section id="v-back" hidden>
-        <h2><span class="ic ic-home-variant"></span>帰りの便をえらぶ</h2>
-        <p class="sub" id="back-sub"></p>
-        <div id="back-list" class="list"></div>
+      <section id="v-list">
+        <h2 id="list-title"></h2>
+        <p class="sub" id="list-sub"></p>
+        <div id="notes"></div>
+        <div id="list" class="list"></div>
         <div class="res-foot"><button id="to-all" class="next">経路全体を確認する</button></div>
       </section>
       <section id="v-all" hidden>
@@ -53,33 +50,19 @@
    </div>
   </section>
 
-  <aside class="side" id="side">
-   <div class="mid-info" id="side-info">
-    <div class="mid-box cal-box">
-      <div class="verdict" id="day-verdict"></div>
-      <div class="cal-head">
-        <button id="cal-prev" class="nav" aria-label="前の月"><span class="ic ic-chevron-left"></span></button>
-        <b id="cal-title"></b>
-        <button id="cal-next" class="nav" aria-label="次の月"><span class="ic ic-chevron-right"></span></button>
-      </div>
-      <div class="cal" id="cal"></div>
-      <div class="scale" id="cal-scale"></div>
-    </div>
-    <div class="mid-box day-box">
-      <div class="verdict" id="time-verdict"></div>
-      <div class="chart" id="chart"></div>
-      <p class="note" id="chart-note"></p>
-    </div>
-   </div>
-
-  </aside>
+  <div class="pop" id="pop" hidden>
+    <div class="pop-head"><b id="pop-title"></b><button type="button" id="pop-close" aria-label="閉じる"><span class="ic ic-close"></span></button></div>
+    <div id="pop-body"></div>
+  </div>
 
   <main class="mapwrap">
     <div id="map"></div>
     <div class="layers" id="layers">
       <div class="layers-ttl"><span class="ic ic-layers-outline"></span>表示</div>
-      <label><input type="checkbox" id="ly-spots" checked>寄り道のスポット</label>
-      <label><input type="checkbox" id="ly-hosps" checked>病院</label>
+      <label><input type="checkbox" id="ly-stops" checked>かわまるのバス停</label>
+      <label><input type="checkbox" id="ly-hosps" checked>病院・診療所</label>
+      <label><input type="checkbox" id="ly-spots">寄り道のスポット</label>
+      <label><input type="checkbox" id="ly-rail">JR・東武東上線</label>
     </div>
     <div class="legend" id="legend"></div>
   </main>
@@ -87,6 +70,7 @@
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="engine.js"></script>
 <script src="planner.js"></script>
+<script src="trip.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

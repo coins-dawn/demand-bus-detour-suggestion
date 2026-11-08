@@ -206,7 +206,15 @@ def main():
                         "hull": hull([(stops[s]["lon"], stops[s]["lat"]) for s in ids])}
 
     # ---------------------------------------------------------------- 周辺の場所（OSM）
-    anchors = [(stops[h["id"]]["lat"], stops[h["id"]]["lon"]) for h in hosp]
+    # 病院・診療所（医療情報ネット、build_med.py が作る）と、駅の乗り場のまわり。無ければ実績の多い病院の乗り場
+    anchors = []
+    mp, rp = os.path.join(OUT, "med.json"), os.path.join(OUT, "rail.json")
+    if os.path.exists(mp):
+        anchors += [(x["lat"], x["lon"]) for x in json.load(open(mp))["list"]]
+    if os.path.exists(rp):
+        anchors += [(stops[x["stop"]]["lat"], stops[x["stop"]]["lon"]) for x in json.load(open(rp))["stations"] if x.get("stop")]
+    if not anchors:
+        anchors = [(stops[h["id"]]["lat"], stops[h["id"]]["lon"]) for h in hosp]
     spots = []
     with open(SPOTS) as f:
         for line in f:

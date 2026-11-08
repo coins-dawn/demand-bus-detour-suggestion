@@ -12,14 +12,12 @@ html, body { margin: 0; height: 100%; font-family: "Hiragino Sans", "Noto Sans J
 .top .about { font-size: 14px; color: var(--ink); text-decoration: none; display: inline-flex; gap: 4px; align-items: center; }
 .top .about:hover { text-decoration: underline; }
 /* 地図を背景いっぱいに敷き、その上に左のペインと真ん中のペインを浮かべる */
-.app { position: relative; height: calc(100vh - var(--head)); --gap: 12px; --w1: 290px; --w2: 340px; --w3: 320px; --float: calc(var(--gap) * 2 + var(--w1)); }
+.app { position: relative; height: calc(100vh - var(--head)); --gap: 12px; --w1: 290px; --w2: 360px; --float: calc(var(--gap) * 2 + var(--w1)); }
 .app.res { --float: calc(var(--gap) * 3 + var(--w1) + var(--w2)); }
-.pane, .mid, .side { position: absolute; top: var(--gap); bottom: var(--gap); z-index: 2; border-radius: 12px; box-shadow: 0 4px 18px rgba(0,0,0,.16); border: 1px solid rgba(0,0,0,.06); overflow: hidden; }
+.pane, .mid { position: absolute; top: var(--gap); bottom: var(--gap); z-index: 2; border-radius: 12px; box-shadow: 0 4px 18px rgba(0,0,0,.16); border: 1px solid rgba(0,0,0,.06); overflow: hidden; }
 .pane { left: var(--gap); width: var(--w1); bottom: auto; max-height: calc(100% - var(--gap) * 2); overflow-y: auto; padding: 12px 12px 20px; background: rgba(246,247,248,.97); }
 .mid { left: calc(var(--gap) * 2 + var(--w1)); width: var(--w2); background: rgba(255,255,255,.98); }
 .mid[hidden] { display: none; }
-.side { right: var(--gap); width: var(--w3); background: rgba(255,255,255,.98); }
-.app .maplibregl-ctrl-top-right, .app .maplibregl-ctrl-bottom-right { right: calc(var(--w3) + var(--gap) * 2); }
 .mid-info { display: grid; grid-template-rows: 50% 50%; height: 100%; }
 .mid-res { display: flex; flex-direction: column; height: 100%; background: var(--bg); }
 .mid-res[hidden], .mid-info[hidden] { display: none; }
@@ -157,13 +155,11 @@ button { font: inherit; cursor: pointer; }
 
 @media (max-width: 900px) {
   .app { display: flex; flex-direction: column; height: auto; --float: 12px; }
-  .app .maplibregl-ctrl-top-right, .app .maplibregl-ctrl-bottom-right { right: 0; }
-  .pane, .mid, .side { position: static; width: auto; border-radius: 0; box-shadow: none; border: 0; border-bottom: 1px solid var(--line); overflow: visible; }
-  .mid, .side { height: auto; }
+  .pane, .mid { position: static; width: auto; border-radius: 0; box-shadow: none; border: 0; border-bottom: 1px solid var(--line); overflow: visible; }
+  .mid { height: auto; }
   .mid-res .res-body { overflow: visible; }
   .mapwrap { position: relative; inset: auto; }
-  .mid-info { height: auto; grid-template-rows: auto 300px; }
-  .cal { min-height: 260px; }
+  .pop { position: fixed; left: 8px !important; right: 8px; top: auto !important; bottom: 8px; width: auto; max-height: 80vh; overflow-y: auto; }
   .mapwrap { height: 70vh; }
   .top h1 { font-size: 15px; }
   .top .about { font-size: 12px; white-space: nowrap; }
@@ -201,3 +197,70 @@ button { font: inherit; cursor: pointer; }
 .rt-mode.walk { color: var(--sub); font-weight: 500; }
 .rt-leg { font-size: 10px; color: #fff; border-radius: 3px; padding: 0 5px; }
 .rt-mt { font-size: 12px; color: var(--sub); margin-top: 2px; }
+
+/* 行き・帰りのトグル。左のペイン全体の色も変える */
+.pane.go { background: rgba(255,240,245,.97); border-top: 5px solid var(--me); }
+.pane.back { background: rgba(235,244,253,.97); border-top: 5px solid var(--back); }
+.pane.back #go { background: var(--back); }
+.dir { position: relative; display: grid; grid-template-columns: 1fr 1fr; background: #fff; border: 1px solid var(--line); border-radius: 99px; padding: 3px; margin-bottom: 12px; }
+.dir button { position: relative; z-index: 1; border: 0; background: none; padding: 8px 0; font-size: 16px; font-weight: 700; color: var(--sub); display: flex; align-items: center; justify-content: center; gap: 5px; transition: color .2s; }
+.dir button[aria-checked="true"] { color: #fff; }
+.dir .knob { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px); border-radius: 99px; background: var(--me); transition: transform .25s, background .25s; }
+.pane.back .dir .knob { transform: translateX(100%); background: var(--back); }
+.pick { display: flex; width: 100%; margin-top: 4px; padding: 8px; font-size: 15px; border: 1px solid #c5ccd3; border-radius: 6px; background: #fff; color: var(--ink); text-align: left; align-items: center; justify-content: space-between; }
+.pick::after { content: ""; width: 18px; height: 18px; background: #868e96; -webkit-mask: url(icons/calendar-month-outline.svg) center / contain no-repeat; mask: url(icons/calendar-month-outline.svg) center / contain no-repeat; }
+#time.pick::after { -webkit-mask-image: url(icons/clock-time-four-outline.svg); mask-image: url(icons/clock-time-four-outline.svg); }
+.pick.empty { color: #868e96; }
+form select:invalid, form select.empty { color: #868e96; }
+
+/* 吹き出し（カレンダー・時刻） */
+.pop { position: absolute; z-index: 5; width: 360px; background: #fff; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.22); border: 1px solid rgba(0,0,0,.08); padding: 10px 14px 14px; }
+.pop[hidden] { display: none; }
+.pop-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-size: 14px; }
+.pop-head button { border: 0; background: none; padding: 2px; color: var(--sub); line-height: 0; }
+.pop .cal-title { text-align: center; font-weight: 700; margin: 2px 0 6px; }
+.pop .cal { grid-auto-rows: 38px; }
+.pop .cal .day.hol { box-shadow: inset 0 -3px 0 #c92a2a; }
+.pop .note { font-size: 11px; color: var(--sub); line-height: 1.5; margin: 8px 0 0; }
+.pop .note.big { font-size: 14px; color: var(--ink); }
+.pop .dayline { font-size: 12px; color: var(--sub); margin-bottom: 4px; }
+.pop .chart { height: 130px; flex: none; }
+.bars i.hl { background: var(--me); }
+.pane.back ~ .pop .bars i.hl { background: var(--back); }
+.tbtns { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-top: 10px; }
+.tbtn { border: 1px solid rgba(0,0,0,.08); border-radius: 6px; padding: 5px 0; font-size: 13px; font-variant-numeric: tabular-nums; background: var(--lv); color: var(--ink); }
+.tbtn.sel { outline: 3px solid var(--ink); outline-offset: -1px; font-weight: 800; }
+.tbtn:hover { outline: 2px solid #868e96; }
+
+/* 地図の吹き出し（病院・バス停） */
+.maplibregl-popup-content { padding: 12px 14px; border-radius: 10px; }
+.pp { font-size: 13px; line-height: 1.5; }
+.pp-kind { font-size: 11px; font-weight: 700; }
+.pp-name { font-size: 15px; font-weight: 700; margin: 1px 0 2px; padding-right: 10px; }
+.pp-addr { font-size: 12px; color: var(--sub); }
+.pp-h { font-size: 11px; font-weight: 700; color: var(--sub); margin-top: 6px; }
+.pp-t { border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.pp-t th { font-weight: 600; padding: 1px 8px 1px 0; vertical-align: top; color: var(--sub); }
+.pp-t td { padding: 1px 0; }
+.pp-row { margin-top: 4px; font-size: 12px; }
+.pp-row.sub { color: var(--sub); }
+.pp-row .ic { width: 14px; height: 14px; margin-right: 3px; }
+.pp-src { margin-top: 6px; font-size: 10px; color: #868e96; }
+.pp-btn { display: block; width: 100%; margin-top: 8px; padding: 8px; border: 0; border-radius: 6px; color: #fff; font-size: 14px; font-weight: 700; }
+.pp-btn.go { background: var(--me); } .pp-btn.back { background: var(--back); }
+
+/* 候補 */
+.note-card { font-size: 12px; line-height: 1.6; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 0 0 8px; display: flex; gap: 6px; }
+.note-card .ic { margin-top: 2px; }
+.note-card.warn { background: #fff9db; border-color: #ffe066; }
+.note-card.bad { background: #fff5f5; border-color: #ffc9c9; }
+.opt .tag.rail { background: #e7f5ff; color: #1f4e9e; }
+.opt.taxi, .opt.walkfar { border-style: dashed; }
+.steps li.train { color: var(--ink); }
+.legend .lg-stop { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.legend .lg-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
+.rt-seg.train .rt-rail i { min-height: 54px; }
+.rt-node .dot.station { border-color: #1f4e9e; color: #1f4e9e; }
+.ic-train { --m: url(icons/train.svg); }
+.ic-taxi { --m: url(icons/taxi.svg); }
+.ic-close { --m: url(icons/close.svg); }
