@@ -211,6 +211,7 @@ function hospOptions() {
 function syncForm() {
   const go = S.dir === "go";
   $("pane").classList.toggle("go", go); $("pane").classList.toggle("back", !go);
+  document.querySelector(".app").classList.toggle("back", !go);
   $("dir").querySelectorAll("button").forEach((b) => b.setAttribute("aria-checked", b.dataset.d === S.dir));
   $("lab-from").textContent = go ? "出発地（バス停）" : "出発地（病院）";
   $("lab-to").textContent = go ? "目的地（病院）" : "目的地（バス停）";
@@ -621,7 +622,15 @@ function closedText(H) {
 function hospPopup(H) {
   const go = S.dir === "go";
   const rc = Object.keys(H.rc).length ? H.rc : H.sh, lab = Object.keys(H.rc).length ? "外来受付" : "診療時間";
-  const rows = (WD + "祝").split("").filter((w) => rc[w]).map((w) => `<tr><th>${w}</th><td>${rc[w].map(([a, b]) => `${a.replace(/^0/, "")}〜${b.replace(/^0/, "")}`).join("<br>")}</td></tr>`).join("");
+  // 同じ時間の曜日はまとめる（月火水金 9:00〜12:00、14:30〜18:00）
+  const groups = [];
+  for (const w of (WD + "祝").split("")) {
+    if (!rc[w]) continue;
+    const txt = rc[w].map(([a, b]) => `${a.replace(/^0/, "")}〜${b.replace(/^0/, "")}`).join("、");
+    const g = groups.find((x) => x.txt === txt);
+    if (g) g.days += w; else groups.push({ days: w, txt });
+  }
+  const rows = groups.map((g) => `<tr><th>${g.days}</th><td>${g.txt}</td></tr>`).join("");
   const closed = closedText(H);
   const deps = H.deps.slice(0, 8).join("、") + (H.deps.length > 8 ? ` ほか ${H.deps.length - 8}` : "");
   return `<div class="pp">

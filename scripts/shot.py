@@ -79,10 +79,10 @@ with sync_playwright() as p:
     pg.evaluate(f"(() => {{ const H = medOf({hosp_id(pg, 'きりむら')!r}); map.jumpTo({{center: [H.lon, H.lat], zoom: 15}}); openPopup([H.lon, H.lat], hospPopup(H)); }})()")
     shot(pg, "9_popup")
     # レイヤー（寄り道のスポット・鉄道）
-    pg.evaluate("popup && popup.remove()")
+    pg.evaluate("void (popup && popup.remove())")
     pg.click("#ly-spots")
     pg.click("#ly-rail")
-    pg.evaluate("map.jumpTo({center: [139.47, 35.905], zoom: 12.3})")
+    pg.evaluate("void map.jumpTo({center: [139.47, 35.905], zoom: 12.3})")
     shot(pg, "10_layers")
     pg.close()
     ab = b.new_page(viewport={"width": 1440, "height": 900})
