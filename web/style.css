@@ -287,3 +287,29 @@ form select:invalid, form select.empty { color: #868e96; }
 .stepper button.on { background: var(--brand); border-color: var(--brand); }
 .layers input, .pane input { accent-color: var(--brand); }
 .pop .cal .day.sel, .tbtn.sel { outline-color: var(--brand-dark); }
+
+/* 乗り物ごとの線（凡例と時系列）: かわまる＝白いふちの太線と矢印／電車＝白い破線入り／タクシー＝灰色の破線／歩き＝点 */
+.sw { display: inline-block; width: 28px; height: 8px; margin-right: 6px; vertical-align: 1px; border-radius: 4px; }
+.sw.bus { background: var(--c); box-shadow: 0 0 0 2px #fff, 0 0 0 3px #ced4da; position: relative; }
+.sw.bus::after { content: "› ›"; position: absolute; inset: -5px 0 0 0; color: #fff; font-size: 11px; font-weight: 700; line-height: 16px; text-align: center; letter-spacing: 2px; }
+.sw.train { height: 9px; border-radius: 2px; background: repeating-linear-gradient(90deg, #fff 0 5px, transparent 5px 10px) center / 100% 3px no-repeat, var(--c); }
+.sw.taxi { height: 4px; border-radius: 0; background: repeating-linear-gradient(90deg, #495057 0 8px, transparent 8px 12px); }
+.sw.walk { width: 22px; height: 5px; border-radius: 0; background: radial-gradient(circle, var(--c) 2.4px, transparent 2.6px) 0 50% / 7px 7px repeat-x; }
+.rt-seg.train .rt-rail i { width: 9px; background: repeating-linear-gradient(180deg, #fff 0 6px, transparent 6px 12px) center / 3px 100% no-repeat, var(--c) !important; }
+.rt-seg.taxi .rt-rail i { width: 0; min-height: 40px; border-left: 4px dashed #495057; background: none; }
+.rt-seg.walk .rt-rail i { width: 0; border-left: 5px dotted; }
+
+/* 候補のアコーディオン */
+.opt.acc { padding: 0; cursor: default; }
+.opt.acc .acc-h { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 10px 34px 10px 12px; position: relative; color: inherit; }
+.opt.acc .acc-arrow { position: absolute; right: 12px; top: 14px; width: 16px; height: 16px; background: #868e96;
+  -webkit-mask: url(icons/chevron-right.svg) center / contain no-repeat; mask: url(icons/chevron-right.svg) center / contain no-repeat; transition: transform .2s; transform: rotate(90deg); }
+.opt.acc.open .acc-arrow { transform: rotate(-90deg); }
+.opt.acc .acc-sum { font-size: 13px; color: var(--sub); margin-top: 4px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.opt.acc .acc-sum b { color: var(--ink); font-size: 15px; font-variant-numeric: tabular-nums; }
+.opt.acc .acc-sum .rt-chips { margin: 0; }
+.opt.acc .acc-b { display: none; padding: 0 10px 10px; }
+.opt.acc.open .acc-b { display: block; }
+.opt.acc .acc-b .rt { margin: 4px 0 0; border: 0; padding: 0 0 0 0; }
+.opt.acc .acc-b .note { margin: 0 2px 4px; }
+.top h1 a.home, .top h1 a { color: inherit; text-decoration: none; }

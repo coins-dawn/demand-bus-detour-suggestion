@@ -332,17 +332,25 @@ async function search(ev) {
   if (r.none) notes.push(`<p class="note-card bad">${noneText(r, H, "go")}</p>`);
   $("go-notes").innerHTML = notes.join("");
   $("go-list").innerHTML = r.opts.map((o, i) => card(o, i, "go")).join("");
-  $("go-list").querySelectorAll(".opt").forEach((b) => b.onclick = () => selectGo(+b.dataset.i));
+  $("go-list").querySelectorAll(".opt .acc-h").forEach((b) => b.onclick = () => selectGo(+b.parentNode.dataset.i, true));
   const first = r.opts.findIndex((o) => o.kind !== "walkonly");
   const sp = r.opts.findIndex((o) => o.kind === "spot");
   const big = first >= 0 && (r.opts[first].gap || 0) > 20 * 60;
   selectGo(big && sp >= 0 ? sp : Math.max(0, first));
   fitCoords(S.coords);
 }
-function selectGo(i) {
+// 候補を選ぶ（＝開く）。開いている候補をもう一度押したら閉じる（選んだまま）
+function openAcc(list, i, toggle) {
+  $(list).querySelectorAll(".opt").forEach((b) => {
+    const me = +b.dataset.i === i;
+    b.classList.toggle("sel", me);
+    b.classList.toggle("open", me && !(toggle && b.classList.contains("open")));
+  });
+}
+function selectGo(i, toggle) {
   if (S.goSel !== S.go.opts[i]) S.back = S.backSel = null;   // 行きを変えたら帰りは選び直し
   S.goSel = S.go.opts[i];
-  $("go-list").querySelectorAll(".opt").forEach((b) => b.classList.toggle("sel", +b.dataset.i === i));
+  openAcc("go-list", i, toggle);
   setView("go", true);
   drawTrace();
 }
@@ -360,7 +368,7 @@ function showBack() {
   $("back-sub").textContent = `診察が ${fmt(E)} ごろに終わる見込みとして、${H.name} → ${stopName(S.stop)} の経路をさがしました。診察がのびても間に合うように、1 時間まで遅い便も出します。`;
   $("back-notes").innerHTML = r.none ? `<p class="note-card bad">${noneText(r, H, "back")}</p>` : "";
   $("back-list").innerHTML = r.opts.map((o, i) => card(o, i, "back")).join("");
-  $("back-list").querySelectorAll(".opt").forEach((b) => b.onclick = () => selectBack(+b.dataset.i));
+  $("back-list").querySelectorAll(".opt .acc-h").forEach((b) => b.onclick = () => selectBack(+b.parentNode.dataset.i, true));
   if (!S.backSel || !r.opts.includes(S.backSel)) {
     const safe = r.opts.findIndex((o) => o.kind === "spot" && (o.slack || 0) >= 15 * 60);
     const first = r.opts.findIndex((o) => o.kind !== "walkonly");
@@ -368,9 +376,9 @@ function showBack() {
   } else selectBack(r.opts.indexOf(S.backSel));
   fitCoords(S.coords);
 }
-function selectBack(i) {
+function selectBack(i, toggle) {
   S.backSel = S.back.opts[i];
-  $("back-list").querySelectorAll(".opt").forEach((b) => b.classList.toggle("sel", +b.dataset.i === i));
+  openAcc("back-list", i, toggle);
   setView("back", true);
   drawTrace();
 }
@@ -478,7 +486,12 @@ function card(o, i, dir) {
       note = `<p class="note">時間と距離は目安です。料金はタクシー会社に確かめてください。</p>`;
       break;
   }
-  return `<button class="opt ${o.kind}" data-i="${i}">${tag}<div class="ttl">${ttl}</div>${note}${stepRows(o.steps)}</button>`;
+  const items = routeItems([[o, go ? ME : BACK, go ? "行き" : "帰り"]]);
+  const t0 = o.steps[0].t, t1 = o.steps[o.steps.length - 1].t;
+  return `<div class="opt acc ${o.kind}" data-i="${i}">
+    <button type="button" class="acc-h"><span class="acc-arrow"></span>${tag}<div class="ttl">${ttl}</div>
+      <div class="acc-sum"><b>${fmt(t0)} → ${fmt(t1)}</b>（${dur(t1 - t0)}）<span class="rt-chips">${chipsOf(items)}</span></div></button>
+    <div class="acc-b">${note}${rtHtml(items)}</div></div>`;
 }
 
 // 経路全体（行き → 病院 → 帰り）を、乗換案内の結果のような縦の時系列で出す
@@ -544,44 +557,49 @@ function showAll() {
   const g = S.goSel, b = S.backSel;
   setView("all");
   const items = routeItems([[g, ME, "行き"], [b, BACK, "帰り"]]);
-  const walk = items.filter((x) => x.mode === "walk" && !x.label).reduce((a, x) => a + x.sec, 0);
-  const nBus = items.filter((x) => x.mode === "bus").length, nTr = items.filter((x) => x.mode === "train").length;
-  const nSpot = items.filter((x) => x.type === "spot").length;
-  const row = (x, i) => {
-    if (x.kind === "seg") {
-      if (x.mode === "bus") return `<div class="rt-seg bus"><div class="rt-t"></div><div class="rt-rail"><i style="background:${x.color}"></i></div>
-        <div class="rt-body"><div class="rt-mode" style="color:${x.color}"><span class="ic ic-van"></span>デマンドバス かわまる ${esc(S.data.districts[x.g].name)}<span class="rt-leg" style="background:${x.color}">${x.legName}</span></div>
-        <div class="rt-mt">${fmt(x.t0)} 発 → ${fmt(x.t1)} 着（${mins(x.t1 - x.t0)}分）・予約して乗る</div></div></div>`;
-      if (x.mode === "train") return `<div class="rt-seg train"><div class="rt-t"></div><div class="rt-rail"><i style="background:${x.color}"></i></div>
-        <div class="rt-body"><div class="rt-mode" style="color:${x.color}"><span class="ic ic-train"></span>${esc(x.s.lineName)} ${esc(x.s.ttype)}・${esc(x.s.dest)}行き</div>
-        <div class="rt-mt">${fmt(x.t0)} 発 → ${fmt(x.t1)} 着（${mins(x.t1 - x.t0)}分）</div></div></div>`;
-      if (x.mode === "taxi") return `<div class="rt-seg bus"><div class="rt-t"></div><div class="rt-rail"><i style="background:${x.color}"></i></div>
-        <div class="rt-body"><div class="rt-mode"><span class="ic ic-taxi"></span>タクシー 約 ${mins(x.sec)}分（約 ${x.km.toFixed(1)}km・目安）</div></div></div>`;
-      return `<div class="rt-seg walk"><div class="rt-t"></div><div class="rt-rail"><i style="border-color:${x.color}"></i></div>
-        <div class="rt-body"><div class="rt-mode walk"><span class="ic ic-walk"></span>${x.label ? esc(x.label) + " 約" : "徒歩"} ${mins(x.sec)}分</div></div></div>`;
-    }
-    const end = i === 0 || i === items.length - 1;
-    const ic = x.type === "hosp" ? "hospital-building" : x.type === "spot" ? GROUP_ICON[x.group] : x.type === "station" ? "train" : end || x.type === "home" ? "home-variant" : "bus-stop";
-    const times = [x.arr != null ? `<b>${fmt(x.arr)}</b>` : "", x.dep != null && x.dep !== x.arr ? `<span>${fmt(x.dep)}</span>` : ""].filter(Boolean);
-    return `<div class="rt-node ${x.type}${end ? " end" : ""}"><div class="rt-t">${x.arr == null && x.dep != null ? `<b>${fmt(x.dep)}</b>` : times.join("")}</div>
-      <div class="rt-rail"><span class="dot ${x.type}"><span class="ic ic-${ic}"></span></span></div>
-      <div class="rt-body"><div class="rt-name">${esc(x.name)}${x.tags.map((t) => `<span class="rt-tag">${t}</span>`).join("")}</div>
-      ${x.subs.map((t) => `<div class="rt-sub">${t}</div>`).join("")}</div></div>`;
-  };
   const t0 = g.steps[0].t, t1 = b.steps[b.steps.length - 1].t;
-  const chips = [nBus ? `デマンドバス ${nBus}回` : "", nTr ? `電車 ${nTr}本` : "", walk ? `徒歩 ${mins(walk)}分` : "", nSpot ? `寄り道 ${nSpot}か所` : "",
-    [g, b].some((o) => o.kind === "taxi") ? "タクシー" : "",
-    b.slack != null ? `<span class="${b.slack < 15 * 60 ? "risk" : "safe"}">診察が ${dur(b.slack)} のびても帰りに間に合う</span>` : ""].filter(Boolean);
+  const chips = [chipsOf(items), b.slack != null ? `<span class="${b.slack < 15 * 60 ? "risk" : "safe"}">診察が ${dur(b.slack)} のびても帰りに間に合う</span>` : ""];
   $("all-body").innerHTML = `
     <div class="rt-head">
       <div class="rt-time">${fmt(t0)} <span class="ar">→</span> ${fmt(t1)}</div>
       <div class="rt-dur">${dur(t1 - t0)}（病院で ${dur(S.dur)} の診察をふくむ）</div>
-      <div class="rt-chips">${chips.map((c) => c.startsWith("<span") ? c : `<span>${c}</span>`).join("")}</div>
+      <div class="rt-chips">${chips.join("")}</div>
     </div>
-    <div class="rt">${items.map(row).join("")}</div>`;
+    ${rtHtml(items)}`;
   drawTrace();
   fitCoords(S.coords);
 }
+// 乗換案内ふうの縦の時系列（1 行・2 帰り・3 経路全体で共通）
+function rtRow(x, i, items) {
+  if (x.kind === "seg") {
+    if (x.mode === "bus") return `<div class="rt-seg bus"><div class="rt-t"></div><div class="rt-rail"><i style="background:${x.color}"></i></div>
+      <div class="rt-body"><div class="rt-mode" style="color:${x.color}"><span class="ic ic-van"></span>デマンドバス かわまる ${esc(S.data.districts[x.g].name)}<span class="rt-leg" style="background:${x.color}">${x.legName}</span></div>
+      <div class="rt-mt">${fmt(x.t0)} 発 → ${fmt(x.t1)} 着（${mins(x.t1 - x.t0)}分）・予約して乗る</div></div></div>`;
+    if (x.mode === "train") return `<div class="rt-seg train"><div class="rt-t"></div><div class="rt-rail"><i style="--c:${x.color}"></i></div>
+      <div class="rt-body"><div class="rt-mode" style="color:${x.color}"><span class="ic ic-train"></span>${esc(x.s.lineName)} ${esc(x.s.ttype)}・${esc(x.s.dest)}行き</div>
+      <div class="rt-mt">${fmt(x.t0)} 発 → ${fmt(x.t1)} 着（${mins(x.t1 - x.t0)}分）</div></div></div>`;
+    if (x.mode === "taxi") return `<div class="rt-seg taxi"><div class="rt-t"></div><div class="rt-rail"><i></i></div>
+      <div class="rt-body"><div class="rt-mode"><span class="ic ic-taxi"></span>タクシー 約 ${mins(x.sec)}分（約 ${x.km.toFixed(1)}km・目安）</div></div></div>`;
+    return `<div class="rt-seg walk"><div class="rt-t"></div><div class="rt-rail"><i style="border-color:${x.color}"></i></div>
+      <div class="rt-body"><div class="rt-mode walk"><span class="ic ic-walk"></span>${x.label ? esc(x.label) + " 約" : "徒歩"} ${mins(x.sec)}分</div></div></div>`;
+  }
+  const end = i === 0 || i === items.length - 1;
+  const ic = x.type === "hosp" ? "hospital-building" : x.type === "spot" ? GROUP_ICON[x.group] : x.type === "station" ? "train" : end || x.type === "home" ? "home-variant" : "bus-stop";
+  const times = [x.arr != null ? `<b>${fmt(x.arr)}</b>` : "", x.dep != null && x.dep !== x.arr ? `<span>${fmt(x.dep)}</span>` : ""].filter(Boolean);
+  return `<div class="rt-node ${x.type}${end ? " end" : ""}"><div class="rt-t">${x.arr == null && x.dep != null ? `<b>${fmt(x.dep)}</b>` : times.join("")}</div>
+    <div class="rt-rail"><span class="dot ${x.type}"><span class="ic ic-${ic}"></span></span></div>
+    <div class="rt-body"><div class="rt-name">${esc(x.name)}${x.tags.map((t) => `<span class="rt-tag">${t}</span>`).join("")}</div>
+    ${x.subs.map((t) => `<div class="rt-sub">${t}</div>`).join("")}</div></div>`;
+  }
+const rtHtml = (items) => `<div class="rt">${items.map((x, i) => rtRow(x, i, items)).join("")}</div>`;
+function chipsOf(items, opts) {
+  const walk = items.filter((x) => x.mode === "walk" && !x.label).reduce((a, x) => a + x.sec, 0);
+  const nBus = items.filter((x) => x.mode === "bus").length, nTr = items.filter((x) => x.mode === "train").length;
+  const nSpot = items.filter((x) => x.type === "spot").length, taxi = items.some((x) => x.mode === "taxi");
+  return [nBus ? `デマンドバス ${nBus}回` : "", nTr ? `電車 ${nTr}本` : "", taxi ? "タクシー" : "", walk ? `徒歩 ${mins(walk)}分` : "", nSpot ? `寄り道 ${nSpot}か所` : ""]
+    .filter(Boolean).map((c) => `<span>${c}</span>`).join("");
+}
+
 // 真ん中のペインの切り替え: form（閉じる）／go／back／all
 function setView(v, keepScroll) {
   S.view = v;
@@ -701,17 +719,23 @@ function fitCoords(cs, maxZoom = 15.5) {
   const xs = cs.map((c) => c[0]), ys = cs.map((c) => c[1]);
   map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: mapPad(60), maxZoom, duration: 700 });
 }
+const SW = {
+  bus: (c) => `<span class="sw bus" style="--c:${c}"></span>`,
+  walk: (c) => `<span class="sw walk" style="--c:${c}"></span>`,
+  train: (c) => `<span class="sw train" style="--c:${c}"></span>`,
+  taxi: () => `<span class="sw taxi"></span>`,
+};
 function legend(shown) {
-  const walk = (c) => `<span class="ln dash" style="background:repeating-linear-gradient(90deg, ${c} 0 5px, transparent 5px 9px)"></span>`;
   const rows = [];
   if (shown.length) {
+    const has = (t) => shown.some(([o]) => o.steps.some((s) => s.type === t));
     for (const [o, leg] of shown) {
       const c = leg === "go" ? ME : BACK;
-      rows.push(`<div><span class="ln" style="background:${c}"></span>${leg === "go" ? "行き" : "帰り"}（かわまる）　${walk(c)}歩く</div>`);
+      rows.push(`<div>${SW.bus(c)}${leg === "go" ? "行き" : "帰り"}のかわまる（› が進む向き）</div>`);
     }
-    if (shown.some(([o]) => o.steps.some((s) => s.type === "train"))) rows.push(`<div><span class="ln" style="background:${S.rail.lines.TJ.color}"></span>東武東上線　<span class="ln" style="background:${S.rail.lines.JK.color}"></span>JR川越線</div>`);
-    if (shown.some(([o]) => o.kind === "taxi")) rows.push(`<div><span class="ln dash" style="background:repeating-linear-gradient(90deg, #495057 0 2px, transparent 2px 7px)"></span>タクシー（目安）</div>`);
-    rows.push(`<div class="sub">白い点・破線が流れる向きが進む向き</div>`);
+    if (has("walk")) rows.push(`<div>${shown.map(([o, leg]) => SW.walk(leg === "go" ? ME : BACK)).join("")}歩く（点が流れる向き）</div>`);
+    if (has("train")) rows.push(`<div>${SW.train(S.rail.lines.TJ.color)}東武東上線　${SW.train(S.rail.lines.JK.color)}JR川越線</div>`);
+    if (has("taxi")) rows.push(`<div>${SW.taxi()}タクシー（目安）</div>`);
   } else {
     rows.push(`<div>かわまるのバス停 ${Object.entries(S.data.districts).map(([g, x]) => `<span class="lg-stop" style="background:${COLORS[g]}"></span>${esc(x.name)}`).join("　")}</div>`);
     rows.push(`<div><span class="lg-dot" style="background:#e03131"></span>病院・診療所</div>`);
@@ -837,19 +861,33 @@ async function initMap() {
     "text-field": ["step", ["zoom"], "", 14, ["get", "name"]], "text-size": 11, "text-offset": [0, 1.2], "text-anchor": "top", "text-font": ["Noto Sans Regular"], "text-optional": true },
     paint: { "text-color": "#c92a2a", "text-halo-color": "#fff", "text-halo-width": 1.4 } });
 
-  // 経路（線の上を白い点が流れて向きを示す）
+  // 経路。乗り物ごとに描き分ける
+  //   デマンドバス: 白いふちの太い線＋進む向きの矢印 ／ 電車: 線の色＋白い破線（線路）が流れる
+  //   タクシー: 灰色の長い破線 ／ 歩き: 丸い点が流れる
+  map.addImage("bus-arrow", await (async () => {
+    const img = await svgImg("play", "#fff", 28);
+    const c = document.createElement("canvas"); c.width = c.height = 28;
+    c.getContext("2d").drawImage(img, 0, 0, 28, 28);
+    return c.getContext("2d").getImageData(0, 0, 28, 28);
+  })());
   map.addSource("route", { type: "geojson", data: fc([]) });
   const legColor = ["match", ["get", "leg"], "go", ME, "back", BACK, "#495057"];
-  map.addLayer({ id: "route-train", type: "line", source: "route", filter: ["==", ["get", "kind"], "train"],
-    layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": 7, "line-opacity": 0.9 } });
-  map.addLayer({ id: "route-taxi", type: "line", source: "route", filter: ["==", ["get", "kind"], "taxi"],
-    layout: { "line-cap": "round" }, paint: { "line-color": "#495057", "line-width": 3, "line-dasharray": [0.5, 2] } });
-  map.addLayer({ id: "route-bus", type: "line", source: "route", filter: ["==", ["get", "kind"], "bus"],
-    layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": legColor, "line-width": 6, "line-opacity": 0.9, "line-offset": 3.5 } });
-  map.addLayer({ id: "route-walk", type: "line", source: "route", filter: ["==", ["get", "kind"], "walk"],
-    layout: { "line-cap": "butt", "line-join": "round" }, paint: { "line-color": legColor, "line-width": 4, "line-dasharray": [1.5, 1.5], "line-offset": ["match", ["get", "leg"], "back", 8, 3] } });
-  map.addLayer({ id: "route-ants", type: "line", source: "route", filter: ["in", ["get", "kind"], ["literal", ["bus", "train"]]],
-    layout: { "line-cap": "butt", "line-join": "round" }, paint: { "line-color": "#fff", "line-width": 2.5, "line-dasharray": [0, 4, 3], "line-offset": ["match", ["get", "kind"], "bus", 3.5, 0] } });
+  const isK = (k) => ["==", ["get", "kind"], k];
+  map.addLayer({ id: "route-taxi", type: "line", source: "route", filter: isK("taxi"),
+    layout: { "line-cap": "butt", "line-join": "round" }, paint: { "line-color": "#495057", "line-width": 4, "line-dasharray": [3, 1.6] } });
+  map.addLayer({ id: "route-train", type: "line", source: "route", filter: isK("train"),
+    layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": 8 } });
+  map.addLayer({ id: "route-ties", type: "line", source: "route", filter: isK("train"),
+    layout: { "line-cap": "butt", "line-join": "round" }, paint: { "line-color": "#fff", "line-width": 3, "line-dasharray": [2, 2] } });
+  map.addLayer({ id: "route-bus-case", type: "line", source: "route", filter: isK("bus"),
+    layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#fff", "line-width": 13, "line-offset": ["match", ["get", "leg"], "back", 9, 0] } });
+  map.addLayer({ id: "route-bus", type: "line", source: "route", filter: isK("bus"),
+    layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": legColor, "line-width": 8, "line-offset": ["match", ["get", "leg"], "back", 9, 0] } });
+  map.addLayer({ id: "route-arrow", type: "symbol", source: "route", filter: isK("bus"),
+    layout: { "symbol-placement": "line", "symbol-spacing": 54, "icon-image": "bus-arrow", "icon-size": 0.8, "icon-offset": ["match", ["get", "leg"], "back", ["literal", [0, 11.3]], ["literal", [0, 0]]],
+      "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true } });
+  map.addLayer({ id: "route-walk", type: "line", source: "route", filter: isK("walk"),
+    layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": legColor, "line-width": 5, "line-dasharray": [0, 2], "line-offset": ["match", ["get", "leg"], "back", 9, 3] } });
 
   map.addSource("marks", { type: "geojson", data: fc([]) });
   map.addLayer({ id: "marks", type: "symbol", source: "marks", layout: {
@@ -878,15 +916,14 @@ async function initMap() {
     map.on("mouseleave", l, () => map.getCanvas().style.cursor = "");
   }
 
-  // 白い点を流す（MapLibre の線の破線をずらしていく）
-  const SEQ = [[0, 4, 3], [0.5, 4, 2.5], [1, 4, 2], [1.5, 4, 1.5], [2, 4, 1], [2.5, 4, 0.5], [3, 4, 0],
-    [0, 0.5, 3, 3.5], [0, 1, 3, 3], [0, 1.5, 3, 2.5], [0, 2, 3, 2], [0, 2.5, 3, 1.5], [0, 3, 3, 1], [0, 3.5, 3, 0.5]];
-  const D = 1.5, G = 1.5, L = D + G;
-  const WSEQ = SEQ.map((_, i) => { const f = (i / SEQ.length) * L; return f < G ? [0, f, D, G - f] : [f - G, G, L - f, 0]; });
+  // 電車の白い破線と歩きの丸い点を、進む向きに流す（MapLibre の線の破線をずらしていく）
+  const N = 16;
+  const TIES = Array.from({ length: N }, (_, i) => { const f = (i / N) * 4; return f < 2 ? [0, f, 2, 2 - f] : [f - 2, 2, 4 - f, 0]; });
+  const DOTS = Array.from({ length: N }, (_, i) => { const f = (i / N) * 2; return [0, f, 0, 2 - f]; });
   let k = -1;
   const ants = (ts) => {
-    const n = Math.floor(ts / 70) % SEQ.length;
-    if (n !== k) { k = n; map.setPaintProperty("route-ants", "line-dasharray", SEQ[n]); map.setPaintProperty("route-walk", "line-dasharray", WSEQ[n]); }
+    const n = Math.floor(ts / 80) % N;
+    if (n !== k) { k = n; map.setPaintProperty("route-ties", "line-dasharray", TIES[n]); map.setPaintProperty("route-walk", "line-dasharray", DOTS[n]); }
     requestAnimationFrame(ants);
   };
   requestAnimationFrame(ants);
