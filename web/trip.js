@@ -33,6 +33,15 @@
       this.eng = {};
       this.plans = {};
       this.P = {};
+      this.door = {};   // 地区ごとの バス停 ⇔ 病院 の車と歩きの道（door_<g>.json）
+    }
+    setDoor(g, d) { this.door[g] = d; }
+    // バス停 ⇔ 病院 の道（向きはバス停が先）。kind: "c"（車）／"w"（歩き）
+    doorOf(a, b, kind) {
+      const [s, h] = a[0] === "h" ? [b, a] : [a, b];
+      if (h[0] !== "h" || s[0] === "h" || s[0] === "s") return null;
+      const g = this.stopG(s), d = g && this.door[g];
+      return d && d[kind][`${s}|${h}`] || null;
     }
     // 運行日ごとに、各地区の車の予定（実績を受け付け直したもの）を渡す
     setDay(day, eng, plans) {
@@ -55,6 +64,8 @@
       const key = a < b ? `${a}|${b}` : `${b}|${a}`;
       const w = this.walk.p[key];
       if (w && w[1]) return w[1];
+      const dw = this.doorOf(a, b, "w");
+      if (dw) return dw[1];
       return hav(this.pos(a), this.pos(b)) * DETOUR;
     }
     walkS(a, b) {
@@ -167,7 +178,7 @@
     go(O, hid, T) {
       const H = this.med.get(hid), hk = "h" + hid, g = this.stopG(O), gh = H.g;
       const res = { dir: "go", O, hid, T, g, gh, opts: [] };
-      const dOH = hav(this.pos(O), H) * DETOUR;
+      const dOH = this.walkM(O, hk);
       if (dOH <= WALK_ONLY_M) res.opts.push(this.walkOnly(O, hk, T, "go"));
       if (g === gh) res.opts.push(...this.goDemand(O, H, T));
       else res.opts.push(...this.goRail(O, H, T));
@@ -342,7 +353,7 @@
       try {
         const H = this.med.get(hid), hk = "h" + hid, g = this.stopG(O), gh = H.g;
         const res = { dir: "back", O, hid, T, g, gh, opts: [] };
-        const dOH = hav(this.pos(O), H) * DETOUR;
+        const dOH = this.walkM(O, hk);
         if (dOH <= WALK_ONLY_M) res.opts.push(this.walkOnly(hk, O, T, "back"));
         if (g === gh) res.opts.push(...this.backDemand(H, O, T, !!opt.buffer));
         else res.opts.push(...this.backRail(H, O, T));
@@ -506,9 +517,10 @@
     }
     fallback(a, b, T, dir, m) {
       if (m <= WALK_FALLBACK_M) return Object.assign(this.walkOnly(a, b, T, dir), { kind: "walkfar" });
-      // タクシー: 道のり ≒ 直線の 1.35 倍、平均 22km/h ＋ 呼んでから乗るまで 10 分（目安）
-      const km = hav(this.pos(a), this.pos(b)) * 1.35 / 1000;
-      const ride = Math.ceil(km / 22 * 60) * 60;
+      // タクシー: 道路の道のりと走る時間（OSRM の車）。かわまると同じく 1.4 倍＋1 分で見る。取れていなければ直線の 1.35 倍・22km/h
+      const dc = this.doorOf(a, b, "c");
+      const km = dc ? dc[1] / 1000 : hav(this.pos(a), this.pos(b)) * 1.35 / 1000;
+      const ride = Math.ceil((dc ? dc[2] * 1.4 + 60 : km / 22 * 3600) / 60) * 60;
       const t0 = dir === "go" ? T - ride : T, t1 = dir === "go" ? T : T + ride;
       return { kind: "taxi", start: t0, end: t1, sec: ride, km, legs: [],
         steps: [{ type: "start", t: t0, place: a }, { type: "taxi", t: t0, sec: ride, km, from: a, to: b }, { type: "goal", t: t1, place: b }] };

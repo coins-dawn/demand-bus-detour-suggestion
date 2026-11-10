@@ -11,6 +11,7 @@ python3 scripts/build_rail.py              # web/data/rail.json（鉄道。ODPT_
 python3 scripts/build_med.py               # web/data/med.json（病院・診療所。OSRM の徒歩が要る）
 python3.9 scripts/build_data.py --geom     # もう一度: 寄り道の場所を病院・駅のまわりから拾う ＋ 停留所間の道路の形（OSRM が要る）
 python3 scripts/build_walk.py              # web/data/walk.json（歩く道の形と道のり。OSRM の徒歩が要る）
+python3 scripts/build_door.py              # web/data/door_<地区>.json（バス停 ⇔ 病院 のタクシーと歩きの道。OSRM の車と徒歩が要る）
 
 # 2. 配信して開く
 python3 scripts/serve.py                     # http://localhost:8004/（ポートは引数で変えられる）
@@ -60,6 +61,7 @@ python3 scripts/serve.py                     # http://localhost:8004/（ポー�
 - `scripts/build_rail.py` … 鉄道の時刻・駅・線の形を作る
 - `scripts/build_med.py` … 病院・診療所を作る
 - `scripts/build_walk.py` … 歩く道の形と道のりを作る
+- `scripts/build_door.py` … バス停と病院のあいだのタクシー・歩きの道を作る
 - `scripts/shot.py` … 画面を撮る（Playwright）
 - `tests/` … `node tests/replay.test.js`、`node tests/trip.test.js`
 

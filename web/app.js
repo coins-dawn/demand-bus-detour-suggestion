@@ -8,7 +8,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<
 const fmt = (t) => `${Math.floor(t / 3600)}:${String(Math.floor(t / 60) % 60).padStart(2, "0")}`;
 const mins = (sec) => Math.max(0, Math.round(sec / 60));
 const dur = (sec) => { const m = mins(sec); return m >= 60 ? `${Math.floor(m / 60)}時間${m % 60 ? (m % 60) + "分" : ""}` : `${m}分`; };
-const COLORS = { 1: "#1c7ed6", 2: "#e8590c", 3: "#7048e8" };
+const COLORS = { 1: "#1c7ed6", 2: "#0c8599", 3: "#7048e8" };
 const ME = "#d6336c", BACK = "#1971c2";
 const GROUP_ICON = { rest: "coffee", errand: "cart", sit: "bench" };
 const GROUP_COLOR = { rest: "#a0522d", errand: "#2b8a3e", sit: "#1971c2" };
@@ -78,7 +78,21 @@ function walkPath(a, b) {
   const w = S.walk.p[a < b ? `${a}|${b}` : `${b}|${a}`];
   let pts = w ? decode(w[0]) : [];
   if (w && a > b) pts.reverse();
+  if (!w) pts = doorPath(a, b, "w");
   return [xy(a)].concat(pts, [xy(b)]);
+}
+// バス停 ⇔ 病院 を乗り物なしで行く道（door_<g>.json はバス停 → 病院 の向き）
+function doorPath(a, b, kind) {
+  const d = trip.doorOf(a, b, kind);
+  if (!d) return [];
+  const pts = decode(d[0]);
+  return a[0] === "h" ? pts.reverse() : pts;
+}
+// 地区ごとの door_<g>.json を読む（はじめて使うときだけ）
+async function loadDoor(g) {
+  if (trip.door[g]) return;
+  const d = await fetch(`data/door_${g}.json`).then((r) => r.ok ? r.json() : null).catch(() => null);
+  trip.setDoor(g, d || { c: {}, w: {} });
 }
 function railPath(i, j) {
   const p = S.rail.paths[i < j ? `${i}|${j}` : `${j}|${i}`];
@@ -292,9 +306,10 @@ function breakIn(a, b) {
 }
 const endT = () => S.T + S.dur;
 
-function search(ev) {
+async function search(ev) {
   ev && ev.preventDefault();
   closePop();
+  await loadDoor(S.g);
   const r = trip.go(S.stop, S.hosp, S.T);
   S.go = r; S.back = S.backSel = null;
   setView("go");
@@ -633,7 +648,7 @@ function drawTrace() {
     for (const s of o.steps) {
       if (s.type === "walk" && s.sec > 0) line(walkPath(s.from, s.to), "walk");
       if (s.type === "train") line(railPath(s.from, s.to), "train", { color: s.color });
-      if (s.type === "taxi") line([xy(s.from), xy(s.to)], "taxi");
+      if (s.type === "taxi") line([xy(s.from)].concat(doorPath(s.from, s.to, "c"), [xy(s.to)]), "taxi");
       if (s.type === "stay") marks.push(pt([s.spot.lon, s.spot.lat], { icon: "pin-" + s.spot.group, label: s.spot.name || s.spot.label }));
       if (s.type === "train") {
         for (const k of [s.from, s.to]) { const st = S.rail.stations[k]; marks.push(pt([st.lon, st.lat], { icon: "pin-train", label: st.name })); }
@@ -667,10 +682,11 @@ function legend(shown) {
       rows.push(`<div><span class="ln" style="background:${c}"></span>${leg === "go" ? "行き" : "帰り"}（かわまる）　${walk(c)}歩く</div>`);
     }
     if (shown.some(([o]) => o.steps.some((s) => s.type === "train"))) rows.push(`<div><span class="ln" style="background:${S.rail.lines.TJ.color}"></span>東武東上線　<span class="ln" style="background:${S.rail.lines.JK.color}"></span>JR川越線</div>`);
+    if (shown.some(([o]) => o.kind === "taxi")) rows.push(`<div><span class="ln dash" style="background:repeating-linear-gradient(90deg, #495057 0 2px, transparent 2px 7px)"></span>タクシー（目安）</div>`);
     rows.push(`<div class="sub">白い点・破線が流れる向きが進む向き</div>`);
   } else {
     rows.push(`<div><span class="lg-stop" style="background:${COLORS[S.g]}"></span>かわまるのバス停（${esc(S.data.districts[S.g].name)}）</div>`);
-    rows.push(`<div><span class="lg-dot" style="background:#e03131"></span>病院　<span class="lg-dot" style="background:#f783ac"></span>診療所</div>`);
+    rows.push(`<div><span class="lg-dot" style="background:#e03131"></span>病院・診療所</div>`);
     rows.push(`<div class="sub">押すと、くわしい情報と登録のボタンが出ます</div>`);
   }
   $("legend").innerHTML = rows.join("");
@@ -697,7 +713,7 @@ function hospPopup(H) {
   const closed = closedText(H);
   const deps = H.deps.slice(0, 8).join("、") + (H.deps.length > 8 ? ` ほか ${H.deps.length - 8}` : "");
   return `<div class="pp">
-    <div class="pp-kind" style="color:${H.kind === "病院" ? "#c92a2a" : "#d6336c"}">${H.kind}・${esc(S.data.districts[H.g].name)}</div>
+    <div class="pp-kind" style="color:#c92a2a">${H.kind}・${esc(S.data.districts[H.g].name)}</div>
     <div class="pp-name">${esc(H.name)}</div>
     <div class="pp-addr">${esc(H.addr)}</div>
     ${rows ? `<div class="pp-h">${lab}</div><table class="pp-t">${rows}</table>` : ""}
@@ -739,7 +755,6 @@ async function initMap() {
   map.addImage("pin-train", await pin("train", "#495057"));
   for (const g of Object.keys(GROUP_ICON)) map.addImage("pin-" + g, await pin(GROUP_ICON[g], GROUP_COLOR[g]));
   map.addImage("hosp", await icon("hospital-building", "#fff", "#e03131", 32));
-  map.addImage("clinic", await icon("hospital-building", "#fff", "#f06595", 26));
   for (const g of Object.keys(d.districts)) map.addImage("stop-" + g, await stopIcon(COLORS[g]));
   map.addImage("station", await icon("train", "#fff", "#495057", 30));
   for (const s of d.spots) if (!map.hasImage("k-" + s.kind)) map.addImage("k-" + s.kind, await icon(KIND_ICON[s.kind] || "map-marker", "#fff", GROUP_COLOR[s.group], 30));
@@ -777,10 +792,9 @@ async function initMap() {
   // 病院・診療所（医療情報ネット）
   map.addSource("hosps", { type: "geojson", data: fc(S.med.list.map((x) => pt([x.lon, x.lat], { id: x.id, name: x.name, kind: x.kind, g: x.g }))) });
   map.addLayer({ id: "hosps", type: "symbol", source: "hosps", layout: {
-    "icon-image": ["match", ["get", "kind"], "病院", "hosp", "clinic"],
+    "icon-image": "hosp",
     "icon-size": ["interpolate", ["linear"], ["zoom"], 11, 0.45, 15, 0.85], "icon-allow-overlap": true,
-    "symbol-sort-key": ["match", ["get", "kind"], "病院", 2, 1],
-    "text-field": ["step", ["zoom"], ["match", ["get", "kind"], "病院", ["get", "name"], ""], 14.5, ["get", "name"]], "text-size": 11, "text-offset": [0, 1.2], "text-anchor": "top", "text-font": ["Noto Sans Regular"], "text-optional": true },
+    "text-field": ["step", ["zoom"], "", 14, ["get", "name"]], "text-size": 11, "text-offset": [0, 1.2], "text-anchor": "top", "text-font": ["Noto Sans Regular"], "text-optional": true },
     paint: { "text-color": "#c92a2a", "text-halo-color": "#fff", "text-halo-width": 1.4 } });
 
   // 経路（線の上を白い点が流れて向きを示す）
