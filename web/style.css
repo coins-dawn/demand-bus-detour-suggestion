@@ -278,7 +278,7 @@ form select:invalid, form select.empty { color: #868e96; }
 }
 
 /* オレンジ基調（かわまるの車の色） */
-.top { background: #fff9f2; border-bottom: 0; }
+.top { background: #fff9f2; border-bottom: 0; position: relative; z-index: 4; box-shadow: 0 4px 18px rgba(0,0,0,.16); }
 .top h1 { color: var(--brand-dark); }
 .top h1::before { content: ""; display: inline-block; width: 22px; height: 22px; margin-right: 6px; vertical-align: -4px; background: var(--brand);
   -webkit-mask: url(icons/van-passenger.svg) center / contain no-repeat; mask: url(icons/van-passenger.svg) center / contain no-repeat; }
@@ -319,3 +319,8 @@ form select:invalid, form select.empty { color: #868e96; }
 /* 地図の出典は隠さず、凡例にかからないように横幅を絞って折り返す */
 .app .maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib { max-width: 400px; text-align: right; border-radius: 6px 0 0 0; }
 @media (max-width: 900px) { .app .maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib { max-width: none; } .legend { bottom: auto; } }
+.empty-res { text-align: center; padding: 120px 18px 0; color: var(--sub); }
+.empty-res .ic { width: 40px; height: 40px; color: #ffc078; }
+.empty-res p { font-size: 15px; font-weight: 700; color: var(--brand-dark); margin: 10px 0 6px; }
+.empty-res .sub { font-size: 12px; font-weight: 400; color: var(--sub); line-height: 1.7; }
+.stepper[hidden] { display: none; }

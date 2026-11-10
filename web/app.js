@@ -241,7 +241,7 @@ const SAMPLES = [
   { stop: "435", hosp: "1111105388700", date: "20260701", T: 10 * 3600, dur: 3600 },   // 伊佐沼新町自治会館前 → 南古谷病院（地区1）
   { stop: "442", hosp: "1121105560000", date: "20260701", T: 10 * 3600, dur: 3600 },   // 菅間中公民館 → 山辺クリニック（地区1）
   { stop: "403", hosp: "1111105386000", date: "20260701", T: 10 * 3600, dur: 3600 },   // 川越今泉郵便局（地区1）→ 関本記念病院（地区2）
-  { stop: "407", hosp: "1111105368200", date: "20260701", T: 14 * 3600, dur: 3600 },   // 川越問屋町簡易郵便局（地区1）→ 川越同仁会病院（地区2）
+  { stop: "002", hosp: "1121110122900", date: "20260701", T: 10 * 3600, dur: 3600 },   // エコスTAIRAYA川越霞ヶ関店（地区3）→ 新河岸腎クリニック（地区2）。東武東上線 1 本
   { stop: "434", hosp: "1121101240400", date: "20260701", T: 10 * 3600, dur: 3600 },   // 杉下町公民館（地区1）→ 中島胃腸科医院（地区2）
 ];
 function fillSamples() {
@@ -603,9 +603,11 @@ function chipsOf(items, opts) {
 // 真ん中のペインの切り替え: form（閉じる）／go／back／all
 function setView(v, keepScroll) {
   S.view = v;
-  $("mid").hidden = v === "form";
-  document.querySelector(".app").classList.toggle("res", v !== "form");
+  $("mid").hidden = false;
+  document.querySelector(".app").classList.add("res");
   for (const k of ["go", "back", "all"]) $("v-" + k).hidden = v !== k;
+  $("v-empty").hidden = v !== "form";
+  $("stepper").hidden = v === "form";
   $("to-back").disabled = !S.goSel;
   $("to-all").disabled = !S.backSel;
   const n = { go: 0, back: 1, all: 2 }[v];
@@ -707,12 +709,20 @@ function drawTrace() {
 function mapPad(p) {
   if (window.innerWidth <= 900) return 40;
   const pane = $("pane"), left = pane.offsetLeft + pane.offsetWidth;
-  const right = $("mid").hidden ? 50 : $("mid").offsetWidth + 24 + 50;
+  const right = $("mid").offsetWidth + 24 + 50;
   // 左上の「表示」の箱と、左下の凡例にかからないように空ける
   const ly = $("layers"), lg = $("legend"), h = $("map").offsetHeight;
   const top = Math.max(p, ly.offsetTop + ly.offsetHeight + 24);
   const bottom = Math.max(p + 40, h - lg.offsetTop + 24);
   return { top, bottom, left: left + p, right: right + p };
+}
+function fitArea() {
+  const cs = (S.area ? S.area.features : []).flatMap((f) => (f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates).flatMap((p) => p[0]));
+  if (!map || !cs.length) return;
+  const xs = cs.map((c) => c[0]), ys = cs.map((c) => c[1]);
+  const pane = $("pane"), left = window.innerWidth <= 900 ? 10 : pane.offsetLeft + pane.offsetWidth + 16;
+  const right = window.innerWidth <= 900 ? 10 : $("mid").offsetWidth + 24 + 16;
+  map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: { top: 24, bottom: 16, left, right }, duration: 0 });
 }
 function fitCoords(cs, maxZoom = 15.5) {
   if (!map || !cs || !cs.length) return;
@@ -833,10 +843,17 @@ async function initMap() {
   for (const [k, segs] of Object.entries(S.rail.shapes)) for (const c of segs) rl.push({ type: "Feature", geometry: { type: "LineString", coordinates: c }, properties: { color: S.rail.lines[k].color } });
   map.addSource("rail", { type: "geojson", data: fc(rl) });
   map.addLayer({ id: "rail-l", type: "line", source: "rail", layout: { visibility: "none", "line-cap": "round" }, paint: { "line-color": ["get", "color"], "line-width": 3.5, "line-opacity": 0.75 } });
-  map.addSource("stations", { type: "geojson", data: fc(S.rail.stations.filter((s, i, a) => a.findIndex((x) => x.name === s.name) === i)
-    .map((s) => pt([s.lon, s.lat], { name: s.name.replace(/駅$/, "") + "駅" }))) });
-  map.addLayer({ id: "stations", type: "symbol", source: "stations", layout: { visibility: "none",
-    "icon-image": "station", "icon-size": 0.7, "icon-allow-overlap": true, "text-field": ["get", "name"], "text-size": 12, "text-offset": [0, 1.1], "text-anchor": "top", "text-font": ["Noto Sans Bold"] },
+  // 駅（同じ名前の駅は 1 つにまとめる。川越駅は JR と東武）
+  const staF = [];
+  for (const [i, st] of S.rail.stations.entries()) {
+    const f = staF.find((x) => x.properties.name === st.name);
+    if (f) { f.properties.lines += "・" + S.rail.lines[st.line].name; continue; }
+    staF.push(pt([st.lon, st.lat], { i, name: st.name, lines: S.rail.lines[st.line].name, stop: st.stop || "" }));
+  }
+  map.addSource("stations", { type: "geojson", data: fc(staF) });
+  map.addLayer({ id: "stations", type: "symbol", source: "stations", layout: {
+    "icon-image": "station", "icon-size": 0.9, "icon-allow-overlap": true, "icon-ignore-placement": true,
+    "text-field": ["get", "name"], "text-size": 12, "text-offset": [0, 1.2], "text-anchor": "top", "text-font": ["Noto Sans Bold"], "text-allow-overlap": true, "text-ignore-placement": true },
     paint: { "text-color": "#343a40", "text-halo-color": "#fff", "text-halo-width": 1.6 } });
 
   // 寄り道のスポット（はじめは出さない）
@@ -907,23 +924,32 @@ async function initMap() {
     "text-field": ["get", "label"], "text-size": 12, "text-anchor": "top", "text-offset": [0, 0.3], "text-font": ["Noto Sans Bold"], "text-allow-overlap": false, "text-optional": true },
     paint: { "text-color": "#212529", "text-halo-color": "#fff", "text-halo-width": 1.8 } });
 
+  map.moveLayer("stations", "route-taxi");   // 駅はバス停・病院より上、経路の線より下
   map.moveLayer("area-name");
   const vis = (ids, on) => ids.forEach((id) => map.setLayoutProperty(id, "visibility", on ? "visible" : "none"));
   $("ly-stops").onchange = (e) => vis(["stops"], e.target.checked);
   $("ly-hosps").onchange = (e) => vis(["hosps"], e.target.checked);
   $("ly-spots").onchange = (e) => vis(["spots"], e.target.checked);
-  $("ly-rail").onchange = (e) => vis(["rail-l", "stations"], e.target.checked);
+  $("ly-sta").onchange = (e) => vis(["stations"], e.target.checked);
+  $("ly-rail").onchange = (e) => vis(["rail-l"], e.target.checked);
 
   map.on("click", "hosps", (e) => { const f = e.features[0]; openPopup(f.geometry.coordinates, hospPopup(medOf(f.properties.id))); });
   map.on("click", "stops", (e) => {
-    if (map.queryRenderedFeatures(e.point, { layers: ["hosps"] }).length) return;
+    if (map.queryRenderedFeatures(e.point, { layers: ["hosps", "stations"] }).length) return;
     const f = e.features[0]; openPopup(f.geometry.coordinates, stopPopup(f.properties.id));
   });
   map.on("click", "spots", (e) => {
     if (map.queryRenderedFeatures(e.point, { layers: ["hosps", "stops"] }).length) return;
     const f = e.features[0]; openPopup(f.geometry.coordinates, `<div class="pp"><div class="pp-kind">${esc(f.properties.label)}</div><div class="pp-name">${esc(f.properties.name)}</div><div class="pp-src">出典: OpenStreetMap</div></div>`);
   });
-  for (const l of ["hosps", "stops", "spots"]) {
+  map.on("click", "stations", (e) => {
+    const f = e.features[0], p = f.properties;
+    openPopup(f.geometry.coordinates, `<div class="pp"><div class="pp-kind" style="color:#495057">駅・${esc(p.lines)}</div><div class="pp-name">${esc(p.name)}</div>
+      ${p.stop ? `<div class="pp-row">かわまるの乗り場: ${esc(stopName(p.stop))}（${esc(S.data.districts[trip.stopG(p.stop)].name)}）</div>
+        <button type="button" class="pp-btn go" data-s="${p.stop}">この乗り場を出発地に登録する</button>` : `<div class="pp-row sub">かわまるの乗り場はありません（市中心部）。乗り換えに使います。</div>`}
+      <div class="pp-src">出典: 公共交通オープンデータセンター（駅・列車時刻表）</div></div>`);
+  });
+  for (const l of ["hosps", "stops", "spots", "stations"]) {
     map.on("mouseenter", l, () => map.getCanvas().style.cursor = "pointer");
     map.on("mouseleave", l, () => map.getCanvas().style.cursor = "");
   }
@@ -960,11 +986,9 @@ async function main() {
   fillSamples();
   syncForm();
   await initMap();
-  // はじめは「サンプル1」（いちばんのおすすめ）を選んでおく
-  $("sample").value = "0"; $("sample").onchange();
+  // はじめはサンプルを選ばない（自分で入力する）。地図は地区のエリア全体がちょうど収まるように寄せる
   drawTrace();
-  const st = S.data.stops;
-  fitCoords(Object.values(S.data.districts).flatMap((x) => x.stops).map((s) => [st[s].lon, st[s].lat]));
+  fitArea();
   $("form").onsubmit = search;
   $("to-back").onclick = showBack;
   $("to-all").onclick = showAll;

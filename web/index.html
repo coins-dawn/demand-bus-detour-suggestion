@@ -12,7 +12,7 @@
   <h1><a href="./" class="home">かわまる 通院寄り道シミュレーション</a></h1>
   <a class="about" href="about.html"><span class="ic ic-information-outline"></span>このサービスについて</a>
 </header>
-<div class="app">
+<div class="app res">
   <aside class="pane" id="pane">
     <label class="sample">サンプルの探索条件<select id="sample"></select></label>
     <form id="form" class="card" onsubmit="return false">
@@ -25,11 +25,16 @@
     </form>
   </aside>
 
-  <section class="mid" id="mid" hidden>
+  <section class="mid" id="mid">
    <div class="mid-res">
-    <div class="stepper" id="stepper"></div>
+    <div class="stepper" id="stepper" hidden></div>
     <div class="res-body" id="res-body">
-      <section id="v-go">
+      <section id="v-empty" class="empty-res">
+        <span class="ic ic-clock-outline"></span>
+        <p>経路探索結果がここに表示されます</p>
+        <p class="sub">左で出発地・目的地・日付・予約時刻・診察にかかる時間を入れて「便をさがす」を押してください。「サンプルの探索条件」を選ぶと、条件が入ります。</p>
+      </section>
+      <section id="v-go" hidden>
         <h2><span class="ic ic-hospital-building"></span>行きの経路をえらぶ</h2>
         <p class="sub" id="go-sub"></p>
         <div id="go-notes"></div>
@@ -63,7 +68,8 @@
       <label><input type="checkbox" id="ly-stops" checked>かわまるのバス停</label>
       <label><input type="checkbox" id="ly-hosps" checked>病院・診療所</label>
       <label><input type="checkbox" id="ly-spots">寄り道のスポット</label>
-      <label><input type="checkbox" id="ly-rail">JR・東武東上線</label>
+      <label><input type="checkbox" id="ly-sta" checked>駅（JR・東武東上線）</label>
+      <label><input type="checkbox" id="ly-rail">JR・東武東上線の線</label>
     </div>
     <div class="legend" id="legend"></div>
   </main>
