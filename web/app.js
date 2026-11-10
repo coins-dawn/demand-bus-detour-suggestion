@@ -236,9 +236,9 @@ function renderChart() {
 }
 
 // ------------------------------------------------------------------ サンプルの探索条件（見どころの違う結果が出る組み合わせ）
-// 1 から順に複雑になる: 同じ地区でちょうど着く → 同じ地区で寄り道 → 電車に乗り継ぐ → 電車・駅のまわりで寄り道 → 境目のバス停からタクシー
+// 1 から順に複雑になる: 同じ地区で行きはまっすぐ・帰りに寄り道 → 同じ地区で行きも寄り道 → 電車に乗り継ぐ → 電車・駅のまわりで寄り道 → 境目のバス停からタクシー
 const SAMPLES = [
-  { stop: "435", hosp: "1111105388700", date: "20260701", T: 10 * 3600, dur: 3600 },   // 伊佐沼新町自治会館前 → 南古谷病院（地区1）
+  { stop: "435", hosp: "1121105452200", date: "20260701", T: 10 * 3600, dur: 3600 },   // 伊佐沼新町自治会館前 → グリーンパーククリニック（地区1）。行きはまっすぐ、帰りに寄り道
   { stop: "442", hosp: "1121105560000", date: "20260701", T: 10 * 3600, dur: 3600 },   // 菅間中公民館 → 山辺クリニック（地区1）
   { stop: "403", hosp: "1111105386000", date: "20260701", T: 10 * 3600, dur: 3600 },   // 川越今泉郵便局（地区1）→ 関本記念病院（地区2）
   { stop: "002", hosp: "1121110122900", date: "20260701", T: 10 * 3600, dur: 3600 },   // エコスTAIRAYA川越霞ヶ関店（地区3）→ 新河岸腎クリニック（地区2）。東武東上線 1 本
@@ -362,6 +362,13 @@ function showBack() {
     for (const b of S.goSel.legs) plans[b.g] = b.plan;
     S.back = trip.back(S.hosp, S.stop, E, { plans, buffer: true });
     S.backSel = null;
+    // 行きと同じスポットに寄る帰りは、一覧の後ろへ回す（はじめに選ぶ候補にもしない）
+    const goKey = S.goSel.spot && S.goSel.spot.key;
+    if (goKey) {
+      const same = (o) => o.spot && o.spot.key === goKey;
+      S.back.opts = S.back.opts.filter((o) => !same(o)).concat(S.back.opts.filter(same));
+      for (const o of S.back.opts) o.sameSpot = same(o);
+    }
   }
   const r = S.back;
   setView("back");
@@ -370,7 +377,7 @@ function showBack() {
   $("back-list").innerHTML = r.opts.map((o, i) => card(o, i, "back")).join("");
   $("back-list").querySelectorAll(".opt .acc-h").forEach((b) => b.onclick = () => selectBack(+b.parentNode.dataset.i, true));
   if (!S.backSel || !r.opts.includes(S.backSel)) {
-    const safe = r.opts.findIndex((o) => o.kind === "spot" && (o.slack || 0) >= 15 * 60);
+    const safe = r.opts.findIndex((o) => o.kind === "spot" && !o.sameSpot && (o.slack || 0) >= 15 * 60);
     const first = r.opts.findIndex((o) => o.kind !== "walkonly");
     selectBack(safe >= 0 ? safe : Math.max(0, first));
   } else selectBack(r.opts.indexOf(S.backSel));
@@ -486,6 +493,7 @@ function card(o, i, dir) {
       note = `<p class="note">時間と距離は目安です。料金はタクシー会社に確かめてください。</p>`;
       break;
   }
+  if (o.sameSpot) note += `<p class="note">行きと同じ場所です。</p>`;
   const items = routeItems([[o, go ? ME : BACK, go ? "行き" : "帰り"]]);
   const t0 = o.steps[0].t, t1 = o.steps[o.steps.length - 1].t;
   return `<div class="opt acc ${o.kind}" data-i="${i}">
