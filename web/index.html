@@ -13,19 +13,16 @@
   <a class="about" href="about.html"><span class="ic ic-information-outline"></span>このサービスについて</a>
 </header>
 <div class="app">
-  <aside class="pane go" id="pane">
-    <div class="dir" id="dir" role="radiogroup" aria-label="行き・帰り">
-      <button type="button" role="radio" data-d="go" aria-checked="true"><span class="ic ic-hospital-building"></span>行き</button>
-      <button type="button" role="radio" data-d="back" aria-checked="false"><span class="ic ic-home-variant"></span>帰り</button>
-      <span class="knob" aria-hidden="true"></span>
-    </div>
-
+  <aside class="pane" id="pane">
     <form id="form" class="card" onsubmit="return false">
       <label>地区<select id="dist"></select></label>
-      <label><span id="lab-from"></span><select id="from"></select></label>
-      <label><span id="lab-to"></span><select id="to"></select></label>
+      <label>出発地（家の近くのバス停）<select id="from"></select></label>
+      <label>目的地（病院）<select id="to"></select></label>
       <label>日付<button type="button" id="date" class="pick"></button></label>
-      <label><span id="lab-time"></span><button type="button" id="time" class="pick"></button></label>
+      <div class="row2">
+        <label>予約時刻<button type="button" id="time" class="pick"></button></label>
+        <label>診察にかかる時間<select id="dur"></select></label>
+      </div>
       <p class="hint">地図のバス停や病院を押して選ぶこともできます。</p>
       <button type="submit" id="go" disabled>便をさがす</button>
     </form>
@@ -35,12 +32,19 @@
    <div class="mid-res">
     <div class="stepper" id="stepper"></div>
     <div class="res-body" id="res-body">
-      <section id="v-list">
-        <h2 id="list-title"></h2>
-        <p class="sub" id="list-sub"></p>
-        <div id="notes"></div>
-        <div id="list" class="list"></div>
-        <div class="res-foot"><button id="to-all" class="next">経路全体を確認する</button></div>
+      <section id="v-go">
+        <h2><span class="ic ic-hospital-building"></span>行きの経路をえらぶ</h2>
+        <p class="sub" id="go-sub"></p>
+        <div id="go-notes"></div>
+        <div id="go-list" class="list"></div>
+        <div class="res-foot"><button id="to-back" class="next">帰りの経路を選択にすすむ</button></div>
+      </section>
+      <section id="v-back" hidden>
+        <h2><span class="ic ic-home-variant"></span>帰りの経路をえらぶ</h2>
+        <p class="sub" id="back-sub"></p>
+        <div id="back-notes"></div>
+        <div id="back-list" class="list"></div>
+        <div class="res-foot"><button id="to-all" class="next back">経路全体を確認する</button></div>
       </section>
       <section id="v-all" hidden>
         <h2><span class="ic ic-clock-outline"></span>経路全体</h2>

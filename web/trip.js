@@ -335,49 +335,70 @@
     }
 
     // ---------------------------------------------------------------- 帰り
-    back(hid, O, T) {
-      const H = this.med.get(hid), hk = "h" + hid, g = this.stopG(O), gh = H.g;
-      const res = { dir: "back", O, hid, T, g, gh, opts: [] };
-      const dOH = hav(this.pos(O), H) * DETOUR;
-      if (dOH <= WALK_ONLY_M) res.opts.push(this.walkOnly(hk, O, T, "back"));
-      if (g === gh) res.opts.push(...this.backDemand(H, O, T));
-      else res.opts.push(...this.backRail(H, O, T));
-      res.mode = g === gh ? "demand" : "rail";
-      if (!res.opts.some((o) => o.kind !== "walkonly")) {
-        res.none = true;
-        res.reason = this.reason(H, g, gh, "back");
-        if (!res.opts.length) res.opts.push(this.fallback(hk, O, T, "back", dOH));
-      }
-      return res;
+    // 帰り。opt.plans: 行きの予約を入れた車の予定（地区ごと）。opt.buffer: 診察がのびても間に合うように 1 時間まで遅い便も出す
+    back(hid, O, T, opt = {}) {
+      const keep = this.plans;
+      if (opt.plans) this.plans = Object.assign({}, this.plans, opt.plans);
+      try {
+        const H = this.med.get(hid), hk = "h" + hid, g = this.stopG(O), gh = H.g;
+        const res = { dir: "back", O, hid, T, g, gh, opts: [] };
+        const dOH = hav(this.pos(O), H) * DETOUR;
+        if (dOH <= WALK_ONLY_M) res.opts.push(this.walkOnly(hk, O, T, "back"));
+        if (g === gh) res.opts.push(...this.backDemand(H, O, T, !!opt.buffer));
+        else res.opts.push(...this.backRail(H, O, T));
+        res.mode = g === gh ? "demand" : "rail";
+        if (!res.opts.some((o) => o.kind !== "walkonly")) {
+          res.none = true;
+          res.reason = this.reason(H, g, gh, "back");
+          if (!res.opts.length) res.opts.push(this.fallback(hk, O, T, "back", dOH));
+        }
+        if (opt.buffer) for (const o of res.opts) if (o.steps[0].type === "hospout") o.steps[0].end = true;
+        return res;
+      } finally { this.plans = keep; }
     }
-    backDemand(H, O, T) {
+    backDemand(H, O, T, buffer) {
       const g = H.g, P = this.P[g], plan = this.plans[g], hk = "h" + H.id;
-      const res = [];
+      const res = [], late = [];
       for (const x of this.accOf(H)) {
         if (x === O) continue;
         const wx = this.walkS(hk, x);
         const d = P.departures(plan, x, O, T + wx, T + W)[0];
         if (d) res.push(Object.assign(d, { x, wx, g }));
+        if (buffer) {
+          const l = P.departures(plan, x, O, T + W - 30 * 60, T + W).pop();
+          if (l) late.push(Object.assign(l, { x, wx, g }));
+        }
       }
       if (!res.length) return [];
       res.sort((p, q) => p.tp - q.tp);
+      late.sort((p, q) => q.tp - p.tp);
       const now = res[0];
       const wait = now.tp - (T + now.wx);
-      const opts = [{ kind: "direct", gap: wait, start: T, end: now.td, legs: [now],
+      const slack = (d) => d.tp - d.wx - T;   // 診察がこれだけのびても間に合う
+      const opts = [{ kind: "direct", gap: wait, slack: slack(now), start: T, end: now.td, legs: [now],
         steps: [this.sHospOut(H, T), this.sWalk(hk, now.x, T), this.sWaitStop(now.x, T + now.wx, now.tp), this.sBoard(now, now.y), this.sAlight(now, true)] }];
-      if (wait <= ON_TIME) return opts;
+      // 余裕をもって遅い便を予約し、病院で待つ
+      const L = late[0];
+      if (L && L.tp - now.tp >= 15 * 60) {
+        const wh = L.tp - L.wx - T;
+        opts.push({ kind: "wait", gap: wh, slack: slack(L), start: T, end: L.td, legs: [L],
+          steps: [this.sHospOut(H, T), { type: "waithosp", t: T, sec: wh, h: H.id }, this.sWalk(hk, L.x, L.tp - L.wx), this.sBoard(L, L.y), this.sAlight(L, true)] });
+      }
+      if (wait <= ON_TIME && !L) return opts;
+      const buses = (wait > ON_TIME ? res : []).concat(L ? late : []);
       const cands = [];
-      for (const d of res) {
+      for (const d of buses) {
         for (const sp of this.spotsAt(hk)) {
           const w1 = this.walkS(hk, sp.key), w2 = this.walkS(sp.key, d.x);
           if (w2 > 12 * 60) continue;
           const stay = d.tp - T - w1 - w2;
           if (stay < MIN_STAY) continue;
-          cands.push({ d, sp, w1, w2, stay, score: w1 + w2 + 0.2 * (d.tp - now.tp) });
+          // 遅い便に乗るほうを先に（診察がのびても間に合う）
+          cands.push({ d, sp, w1, w2, stay, score: w1 + w2 - (buffer ? 0.3 * (d.tp - now.tp) : -0.2 * (d.tp - now.tp)) });
         }
       }
       for (const c of pick(cands)) {
-        opts.push({ kind: "spot", group: c.sp.s.group, spot: c.sp, stay: c.stay, gap: c.d.tp - T, start: T, end: c.d.td, legs: [c.d],
+        opts.push({ kind: "spot", group: c.sp.s.group, spot: c.sp, stay: c.stay, gap: c.d.tp - T, slack: slack(c.d), start: T, end: c.d.td, legs: [c.d],
           steps: [this.sHospOut(H, T), this.sWalk(hk, c.sp.key, T), this.sStay(c.sp, T + c.w1, c.stay), this.sWalk(c.sp.key, c.d.x, c.d.tp - c.w2),
             this.sBoard(c.d, c.d.y), this.sAlight(c.d, true)] });
       }
