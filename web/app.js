@@ -89,6 +89,25 @@ function railPath(i, j) {
 const pt = (c, p = {}) => ({ type: "Feature", geometry: { type: "Point", coordinates: c }, properties: p });
 const fc = (f) => ({ type: "FeatureCollection", features: f });
 
+// 寄り道のスポットの地区: 地区の範囲の中ならその地区、外ならいちばん近いバス停の地区
+function inside([x, y], poly) {
+  let c = false;
+  for (let i = 0; i < poly.length - 1; i++) {
+    const [x1, y1] = poly[i], [x2, y2] = poly[i + 1];
+    if ((y1 > y) !== (y2 > y) && x < (x2 - x1) * (y - y1) / (y2 - y1) + x1) c = !c;
+  }
+  return c;
+}
+function spotDistrict(s) {
+  for (const [g, d] of Object.entries(S.data.districts)) if (inside([s.lon, s.lat], d.hull)) return g;
+  let best = null, bd = Infinity;
+  for (const [g, d] of Object.entries(S.data.districts)) for (const id of d.stops) {
+    const p = S.data.stops[id], dd = (p.lon - s.lon) ** 2 + (p.lat - s.lat) ** 2;
+    if (dd < bd) { bd = dd; best = g; }
+  }
+  return best;
+}
+
 // ------------------------------------------------------------------ 運行日（実績の予約を配車の計算で受け付け直す。3 地区とも）
 function loadDay() {
   const d = day();
@@ -204,9 +223,8 @@ function stopOptions() {
   return `<option value="">バス停をえらぶ</option>` + stopsOf(S.g).map((s) => `<option value="${s}">${esc(stopName(s))}</option>`).join("");
 }
 function hospOptions() {
-  return `<option value="">病院・診療所をえらぶ</option>` + Object.entries(S.data.districts).map(([g, x]) =>
-    `<optgroup label="${esc(x.name)}">` + S.med.list.filter((h) => h.g === g).map((h) =>
-      `<option value="${h.id}">${esc(h.name)}${h.kind === "病院" ? "（病院）" : ""}</option>`).join("") + "</optgroup>").join("");
+  return `<option value="">病院・診療所をえらぶ</option>` + S.med.list.filter((h) => h.g === S.g).map((h) =>
+    `<option value="${h.id}">${esc(h.name)}${h.kind === "病院" ? "（病院）" : ""}</option>`).join("");
 }
 function syncForm() {
   const go = S.dir === "go";
@@ -237,12 +255,20 @@ function setDir(d) {
 function setDistrict(g) {
   if (g === S.g) return;
   S.g = g; S.stop = "";
+  if (S.hosp && medOf(S.hosp).g !== g) S.hosp = "";
   $("dist").value = g;
   syncForm(); clearResults();
-  if (map) map.setFilter("hull-l", ["==", ["get", "g"], g]);
+  filterMap();
   if (!$("pop").hidden) openPop($("pop").dataset.kind);
   const ids = S.data.districts[g].stops, st = S.data.stops;
   fitCoords(ids.map((s) => [st[s].lon, st[s].lat]));
+}
+// 地図は選んだ地区のバス停・病院・寄り道のスポットだけ
+function filterMap() {
+  if (!map) return;
+  if (popup) popup.remove();
+  const f = ["==", ["get", "g"], S.g];
+  for (const id of ["hull-l", "stops", "hosps", "spots"]) map.setFilter(id, f);
 }
 function setDate(i) {
   S.di = i;
@@ -250,7 +276,7 @@ function setDate(i) {
 }
 function setStop(id) {
   const g = trip.stopG(id);
-  if (g !== S.g) { S.g = g; $("dist").value = g; if (map) map.setFilter("hull-l", ["==", ["get", "g"], g]); }
+  if (g !== S.g) return;   // ほかの地区のバス停は選べない
   S.stop = id; syncForm(); clearResults(); focusSel();
 }
 function setHosp(id) { S.hosp = id; syncForm(); clearResults(); focusSel(); }
@@ -652,7 +678,6 @@ function stopPopup(id) {
     <div class="pp-kind" style="color:${COLORS[g]}">かわまるのバス停・${esc(S.data.districts[g].name)}</div>
     <div class="pp-name">${esc(stopName(id))}</div>
     ${sta ? `<div class="pp-row"><span class="ic ic-train"></span>${esc(sta.name)}（${esc(S.rail.lines[sta.line].name)}）のそば</div>` : ""}
-    ${g !== S.g ? `<div class="pp-row sub">登録すると、地区が${esc(S.data.districts[g].name)}に切りかわります。</div>` : ""}
     <button type="button" class="pp-btn ${go ? "go" : "back"}" data-s="${id}">${go ? "出発地に登録する" : "目的地に登録する"}</button></div>`;
 }
 function openPopup(lngLat, html) {
@@ -699,7 +724,7 @@ async function initMap() {
     paint: { "text-color": "#343a40", "text-halo-color": "#fff", "text-halo-width": 1.6 } });
 
   // 寄り道のスポット（はじめは出さない）
-  map.addSource("spots", { type: "geojson", data: fc(d.spots.map((s) => pt([s.lon, s.lat], { icon: "k-" + s.kind, name: s.name || s.label, label: s.label }))) });
+  map.addSource("spots", { type: "geojson", data: fc(d.spots.map((s, i) => pt([s.lon, s.lat], { icon: "k-" + s.kind, name: s.name || s.label, label: s.label, g: S.spotG[i] }))) });
   map.addLayer({ id: "spots", type: "symbol", source: "spots", layout: { visibility: "none",
     "icon-image": ["get", "icon"], "icon-size": ["interpolate", ["linear"], ["zoom"], 12, 0.4, 16, 0.75], "icon-allow-overlap": true,
     "text-field": ["step", ["zoom"], "", 15.5, ["get", "name"]], "text-size": 10, "text-offset": [0, 1.3], "text-anchor": "top", "text-font": ["Noto Sans Regular"], "text-optional": true },
@@ -713,7 +738,7 @@ async function initMap() {
     "text-field": ["step", ["zoom"], "", 15, ["get", "name"]], "text-size": 10.5, "text-offset": [0, 1.1], "text-anchor": "top", "text-font": ["Noto Sans Regular"], "text-optional": true },
     paint: { "text-color": "#343a40", "text-halo-color": "#fff", "text-halo-width": 1.3 } });
   // 病院・診療所（医療情報ネット）
-  map.addSource("hosps", { type: "geojson", data: fc(S.med.list.map((x) => pt([x.lon, x.lat], { id: x.id, name: x.name, kind: x.kind }))) });
+  map.addSource("hosps", { type: "geojson", data: fc(S.med.list.map((x) => pt([x.lon, x.lat], { id: x.id, name: x.name, kind: x.kind, g: x.g }))) });
   map.addLayer({ id: "hosps", type: "symbol", source: "hosps", layout: {
     "icon-image": ["match", ["get", "kind"], "病院", "hosp", "clinic"],
     "icon-size": ["interpolate", ["linear"], ["zoom"], 11, 0.45, 15, 0.85], "icon-allow-overlap": true,
@@ -761,6 +786,8 @@ async function initMap() {
     map.on("mouseleave", l, () => map.getCanvas().style.cursor = "");
   }
 
+  filterMap();
+
   // 白い点を流す（MapLibre の線の破線をずらしていく）
   const SEQ = [[0, 4, 3], [0.5, 4, 2.5], [1, 4, 2], [1.5, 4, 1.5], [2, 4, 1], [2.5, 4, 0.5], [3, 4, 0],
     [0, 0.5, 3, 3.5], [0, 1, 3, 3], [0, 1.5, 3, 2.5], [0, 2, 3, 2], [0, 2.5, 3, 1.5], [0, 3, 3, 1], [0, 3.5, 3, 0.5]];
@@ -783,6 +810,7 @@ async function main() {
   const gg = await Promise.all(gs.map((g) => get(`data/geom_${g}.json`)));
   gs.forEach((g, i) => S.geom[g] = gg[i] || {});
   trip = new Trip({ data: S.data, med: S.med, rail: S.rail, walk: S.walk });
+  S.spotG = S.data.spots.map(spotDistrict);
   $("dist").innerHTML = Object.entries(S.data.districts).map(([g, x]) => `<option value="${g}">${esc(x.name)}</option>`).join("");
   $("dist").value = S.g;
   $("dist").onchange = () => setDistrict($("dist").value);
