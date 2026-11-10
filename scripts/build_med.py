@@ -9,7 +9,7 @@
 - web/data/kawagoe.json（乗り場と地区の範囲）、web/data/rail.json（駅）
 - OSRM の徒歩（OSRM_FOOT、既定 http://localhost:5056）で、病院から近くの乗り場・駅まで歩く距離を取る
 
-地区の範囲（乗り場を囲む多角形）の中にあるものを、その地区の病院とする。
+地区のエリア（build_area.py）の中にあるものを、その地区の病院とする（市中心部は除く）。川越市の外は、乗り場を囲む多角形の中のもの。
 """
 import csv
 import json
@@ -79,6 +79,25 @@ def main():
     rail = json.load(open(os.path.join(OUT, "rail.json")))
     stops = data["stops"]
     hulls = {g: d["hull"] for g, d in data["districts"].items()}
+    # 地区のエリア（build_area.py）があれば、それで決める。市中心部は除く。川越市の外（ふじみ野市など）は乗り場を囲む範囲で
+    ap = os.path.join(OUT, "area.json")
+    areas = None
+    if os.path.exists(ap):
+        from shapely.geometry import Point, shape
+        areas = [(f["properties"]["g"], shape(f["geometry"])) for f in json.load(open(ap))["features"]]
+        city = None
+        from shapely.ops import unary_union
+        city = unary_union([a for _, a in areas]).buffer(0.0005)
+
+    def district_of(lo, la):
+        if areas:
+            p = Point(lo, la)
+            for g, a in areas:
+                if a.contains(p):
+                    return None if g == "c" else g
+            if city.contains(p):
+                return None
+        return next((g for g, h in hulls.items() if inside((lo, la), h)), None)
 
     fac = {}
     for kind, f1, f2 in (("病院", "01-1_hospital_facility_info", "01-2_hospital_speciality_hours"),
@@ -90,7 +109,7 @@ def main():
                 la, lo = float(r["所在地座標（緯度）"]), float(r["所在地座標（経度）"])
             except ValueError:
                 continue
-            g = next((g for g, h in hulls.items() if inside((lo, la), h)), None)
+            g = district_of(lo, la)
             if not g:
                 continue
             col = lambda k: next((r[c] for c in r if c.startswith(k)), "")

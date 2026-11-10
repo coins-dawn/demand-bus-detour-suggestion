@@ -181,7 +181,7 @@
       const dOH = this.walkM(O, hk);
       if (dOH <= WALK_ONLY_M) res.opts.push(this.walkOnly(O, hk, T, "go"));
       if (g === gh) res.opts.push(...this.goDemand(O, H, T));
-      else res.opts.push(...this.goRail(O, H, T));
+      else res.opts.push(...this.goRail(O, H, T), ...this.goBorder(O, H, T));
       res.mode = g === gh ? "demand" : "rail";
       if (!res.opts.some((o) => o.kind !== "walkonly")) {
         res.none = true;
@@ -189,6 +189,45 @@
         if (!res.opts.length) res.opts.push(this.fallback(O, hk, T, "go", dOH));
       }
       return res;
+    }
+    // 地区をまたぐとき: 家の地区の中で、病院までタクシーでいちばん早く行けるバス停（境目のバス停）
+    border(O, hk) {
+      const g = this.stopG(O), d = this.door[g];
+      if (!d) return null;
+      let best = null;
+      for (const s of this.data.districts[g].stops) {
+        const c = d.c[`${s}|${hk}`];
+        if (c && (!best || c[2] < best.c[2])) best = { s, c };
+      }
+      if (!best || best.s === O) return null;
+      const full = d.c[`${O}|${hk}`];
+      if (full && full[2] - best.c[2] < 5 * 60) return null;   // 家から乗るのと 5 分も変わらないなら出さない
+      return best;
+    }
+    taxiSec(c) { return Math.ceil((c[2] * 1.4 + 60) / 60) * 60; }
+    // 行き: 境目のバス停まで かわまる、そこからタクシー（タクシーは前もって呼んでおく）
+    goBorder(O, H, T) {
+      const hk = "h" + H.id, b = this.border(O, hk), g = this.stopG(O);
+      if (!b) return [];
+      const ride = this.taxiSec(b.c), dl = T - ride - 5 * 60;
+      const a = this.P[g].latestArrival(this.plans[g], O, b.s, dl, dl - W);
+      if (!a) return [];
+      a.g = g;
+      return [{ kind: "border", gap: dl - a.td, start: a.tp, end: T, legs: [a], km: b.c[1] / 1000, sec: ride, border: b.s,
+        steps: [this.sBoard(a), this.sAlight(a), { type: "taxi", t: T - ride, sec: ride, km: b.c[1] / 1000, from: b.s, to: hk, wait: T - ride - a.td },
+          this.sHosp(H, T, T)] }];
+    }
+    // 帰り: 病院から境目のバス停までタクシー（呼んで 10 分で来るとみる）、そこから かわまる
+    backBorder(H, O, T) {
+      const hk = "h" + H.id, b = this.border(O, hk), g = this.stopG(O);
+      if (!b) return [];
+      const ride = this.taxiSec(b.c), t0 = T + 10 * 60, arr = t0 + ride;
+      const d = this.P[g].departures(this.plans[g], b.s, O, arr + 2 * 60, arr + W)[0];
+      if (!d) return [];
+      Object.assign(d, { x: b.s, g });
+      return [{ kind: "border", gap: d.tp - arr, slack: d.tp - arr - 2 * 60, start: T, end: d.td, legs: [d], km: b.c[1] / 1000, sec: ride, border: b.s,
+        steps: [this.sHospOut(H, T), { type: "taxi", t: t0, sec: ride, km: b.c[1] / 1000, from: hk, to: b.s, call: 10 * 60 },
+          this.sWaitStop(b.s, arr, d.tp), this.sBoard(d, b.s), this.sAlight(d, true)] }];
     }
     accOf(H) { return (H.acc || []).filter(([, m]) => m <= MAX_ACC_M).map(([s]) => s); }
 
@@ -356,7 +395,7 @@
         const dOH = this.walkM(O, hk);
         if (dOH <= WALK_ONLY_M) res.opts.push(this.walkOnly(hk, O, T, "back"));
         if (g === gh) res.opts.push(...this.backDemand(H, O, T, !!opt.buffer));
-        else res.opts.push(...this.backRail(H, O, T));
+        else res.opts.push(...this.backRail(H, O, T), ...this.backBorder(H, O, T));
         res.mode = g === gh ? "demand" : "rail";
         if (!res.opts.some((o) => o.kind !== "walkonly")) {
           res.none = true;
@@ -504,7 +543,9 @@
         steps.push({ type: "goal", t: r.arr + PLAT, place: O });
         end = r.arr + PLAT;
       }
-      return { kind: c ? "spot" : "rail", group: c && c.sp.s.group, spot: c && c.sp, stay: c && c.stay,
+      // 診察がのびても間に合う時間: 歩いて駅へ行くなら電車まで、かわまるで駅へ行くならその便まで
+      const slack = r.F.walk ? r.dep - r.F.ready : r.F.bus.tp - r.F.bus.wx - T;
+      return { kind: c ? "spot" : "rail", group: c && c.sp.s.group, spot: c && c.sp, stay: c && c.stay, slack,
         gap: r.last.bus ? r.last.bus.tp - (r.arr + PLAT) : 0, start: T, end, legs, rail: r.rp.legs, steps, at: "station", station: r.x };
     }
 

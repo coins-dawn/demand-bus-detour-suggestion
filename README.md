@@ -7,6 +7,7 @@
 ```sh
 # 1. データを作る（../data-exploration にデマンド交通データ・OSRM の所要時間表・医療情報ネットがある前提）
 python3.9 scripts/build_data.py            # web/data/kawagoe.json（はじめの 1 回。地区の範囲を作る）
+python3 scripts/build_area.py              # web/data/area.json（地区 1〜3 と市中心部のエリア。e-Stat の小地域境界が要る）
 python3 scripts/build_rail.py              # web/data/rail.json（鉄道。ODPT_CHALLENGE_TOKEN が要る）
 python3 scripts/build_med.py               # web/data/med.json（病院・診療所。OSRM の徒歩が要る）
 python3.9 scripts/build_data.py --geom     # もう一度: 寄り道の場所を病院・駅のまわりから拾う ＋ 停留所間の道路の形（OSRM が要る）
@@ -59,6 +60,7 @@ python3 scripts/serve.py                     # http://localhost:8004/（ポー�
 - `web/about.html` … このサービスについて（出典・ライセンスの表示）
 - `scripts/build_data.py` … 画面が読むデータを作る
 - `scripts/build_rail.py` … 鉄道の時刻・駅・線の形を作る
+- `scripts/build_area.py` … 地区のエリアを作る
 - `scripts/build_med.py` … 病院・診療所を作る
 - `scripts/build_walk.py` … 歩く道の形と道のりを作る
 - `scripts/build_door.py` … バス停と病院のあいだのタクシー・歩きの道を作る
@@ -71,6 +73,7 @@ python3 scripts/serve.py                     # http://localhost:8004/（ポー�
   事業者・提供元は画面の下に表示している
 - 鉄道の時刻表（JR川越線・東武東上線）: 公共交通オープンデータセンター、公共交通オープンデータチャレンジ限定ライセンス
 - 病院・診療所: 厚生労働省「医療情報ネット」オープンデータ（2026-06-01 時点）、公共データ利用規約（第1.0版）
+- 地区のエリア: 総務省統計局「国勢調査 2020 小地域（町丁・字等）境界データ」（e-Stat 統計GIS）を加工
 - 周辺の場所・道路・鉄道の線の形: © OpenStreetMap contributors（ODbL）
 - 背景地図: OpenFreeMap（© OpenMapTiles、© OpenStreetMap contributors）
 - アイコン: Material Design Icons（Iconify 経由、Apache License 2.0）

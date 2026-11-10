@@ -14,16 +14,13 @@
 </header>
 <div class="app">
   <aside class="pane" id="pane">
+    <label class="sample">サンプルの探索条件<select id="sample"></select></label>
     <form id="form" class="card" onsubmit="return false">
-      <label>地区<select id="dist"></select></label>
       <label>出発地（家の近くのバス停）<select id="from"></select></label>
       <label>目的地（病院）<select id="to"></select></label>
       <label>日付<button type="button" id="date" class="pick"></button></label>
-      <div class="row2">
-        <label>予約時刻<button type="button" id="time" class="pick"></button></label>
-        <label>診察にかかる時間<select id="dur"></select></label>
-      </div>
-      <p class="hint">地図のバス停や病院を押して選ぶこともできます。</p>
+      <label>予約時刻<button type="button" id="time" class="pick"></button></label>
+      <label>診察にかかる時間<select id="dur"></select></label>
       <button type="submit" id="go" disabled>便をさがす</button>
     </form>
   </aside>

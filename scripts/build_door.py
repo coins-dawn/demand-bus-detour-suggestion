@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""家の近くのバス停 ⇔ 病院・診療所を、乗り物を使わずに行くときの道（同じ地区の組ごと）→ web/data/door_<地区>.json
+"""家の近くのバス停 ⇔ 病院・診療所を、タクシーか歩きで行くときの道 → web/data/door_<バス停の地区>.json
+
+すべてのバス停 × すべての病院・診療所（地区をまたぐ組も。地区をまたぐときの「境目のバス停からタクシー」にも使う）。
 
     python3 scripts/build_door.py      （build_med.py のあとに）
 
@@ -46,7 +48,7 @@ def main():
     med = json.load(open(f"{OUT}/med.json"))["list"]
     st = d["stops"]
     for g, dist in d["districts"].items():
-        pairs = [(s, x) for s in dist["stops"] for x in med if x["g"] == g]
+        pairs = [(s, x) for s in dist["stops"] for x in med]
         P = lambda s, x: ((st[s]["lat"], st[s]["lon"]), (x["lat"], x["lon"]))
         with ThreadPoolExecutor(8) as ex:
             cars = list(ex.map(lambda p: route(CAR, "driving", *P(*p), "simplified"), pairs))
