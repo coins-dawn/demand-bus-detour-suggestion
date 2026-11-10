@@ -294,7 +294,10 @@ form select:invalid, form select.empty { color: #868e96; }
 .sw.bus::after { content: "› ›"; position: absolute; inset: -5px 0 0 0; color: #fff; font-size: 11px; font-weight: 700; line-height: 16px; text-align: center; letter-spacing: 2px; }
 .sw.train { height: 9px; border-radius: 2px; background: repeating-linear-gradient(90deg, #fff 0 5px, transparent 5px 10px) center / 100% 3px no-repeat, var(--c); }
 .sw.taxi { height: 4px; border-radius: 0; background: repeating-linear-gradient(90deg, #495057 0 8px, transparent 8px 12px); }
-.sw.walk { width: 22px; height: 5px; border-radius: 0; background: radial-gradient(circle, var(--c) 2.4px, transparent 2.6px) 0 50% / 7px 7px repeat-x; }
+.sw.walk { width: 24px; height: 10px; border-radius: 0; vertical-align: -1px; background:
+  linear-gradient(var(--c), var(--c)) 0 50% / 100% 2px no-repeat;
+  -webkit-mask: none; position: relative; opacity: 1; }
+.sw.walk::after { content: "▸▸▸"; position: absolute; inset: -4px 0 0 0; color: var(--c); font-size: 11px; line-height: 16px; letter-spacing: -1px; text-align: center; }
 .rt-seg.train .rt-rail i { width: 9px; background: repeating-linear-gradient(180deg, #fff 0 6px, transparent 6px 12px) center / 3px 100% no-repeat, var(--c) !important; }
 .rt-seg.taxi .rt-rail i { width: 0; min-height: 40px; border-left: 4px dashed #495057; background: none; }
 .rt-seg.walk .rt-rail i { width: 0; border-left: 5px dotted; }

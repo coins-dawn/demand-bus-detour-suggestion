@@ -733,7 +733,7 @@ function legend(shown) {
       const c = leg === "go" ? ME : BACK;
       rows.push(`<div>${SW.bus(c)}${leg === "go" ? "行き" : "帰り"}のかわまる（› が進む向き）</div>`);
     }
-    if (has("walk")) rows.push(`<div>${shown.map(([o, leg]) => SW.walk(leg === "go" ? ME : BACK)).join("")}歩く（点が流れる向き）</div>`);
+    if (has("walk")) rows.push(`<div>${shown.map(([o, leg]) => SW.walk(leg === "go" ? ME : BACK)).join("")}歩く（▸ が進む向き）</div>`);
     if (has("train")) rows.push(`<div>${SW.train(S.rail.lines.TJ.color)}東武東上線　${SW.train(S.rail.lines.JK.color)}JR川越線</div>`);
     if (has("taxi")) rows.push(`<div>${SW.taxi()}タクシー（目安）</div>`);
   } else {
@@ -863,7 +863,7 @@ async function initMap() {
 
   // 経路。乗り物ごとに描き分ける
   //   デマンドバス: 白いふちの太い線＋進む向きの矢印 ／ 電車: 線の色＋白い破線（線路）が流れる
-  //   タクシー: 灰色の長い破線 ／ 歩き: 丸い点が流れる
+  //   タクシー: 灰色の長い破線 ／ 歩き: 小さな三角を並べる
   map.addImage("bus-arrow", await (async () => {
     const img = await svgImg("play", "#fff", 28);
     const c = document.createElement("canvas"); c.width = c.height = 28;
@@ -886,8 +886,20 @@ async function initMap() {
   map.addLayer({ id: "route-arrow", type: "symbol", source: "route", filter: isK("bus"),
     layout: { "symbol-placement": "line", "symbol-spacing": 54, "icon-image": "bus-arrow", "icon-size": 0.8, "icon-offset": ["match", ["get", "leg"], "back", ["literal", [0, 11.3]], ["literal", [0, 0]]],
       "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true } });
+  // 歩き: 細いうすい線の上に、小さな三角（▶）を並べて向きを示す（動かさない）
+  for (const [leg, c] of [["go", ME], ["back", BACK]]) {
+    const img = await svgImg("play", c, 20);
+    const cv = document.createElement("canvas"); cv.width = cv.height = 20;
+    cv.getContext("2d").drawImage(img, 0, 0, 20, 20);
+    map.addImage("walk-" + leg, cv.getContext("2d").getImageData(0, 0, 20, 20));
+  }
+  const walkOff = ["match", ["get", "leg"], "back", 9, 3];
   map.addLayer({ id: "route-walk", type: "line", source: "route", filter: isK("walk"),
-    layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": legColor, "line-width": 5, "line-dasharray": [0, 2], "line-offset": ["match", ["get", "leg"], "back", 9, 3] } });
+    layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": legColor, "line-width": 2, "line-opacity": 0.45, "line-offset": walkOff } });
+  map.addLayer({ id: "route-walk-arrow", type: "symbol", source: "route", filter: isK("walk"),
+    layout: { "symbol-placement": "line", "symbol-spacing": 14, "icon-image": ["concat", "walk-", ["get", "leg"]], "icon-size": 0.75,
+      "icon-offset": ["match", ["get", "leg"], "back", ["literal", [0, 12]], ["literal", [0, 4]]],
+      "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true } });
 
   map.addSource("marks", { type: "geojson", data: fc([]) });
   map.addLayer({ id: "marks", type: "symbol", source: "marks", layout: {
@@ -916,14 +928,13 @@ async function initMap() {
     map.on("mouseleave", l, () => map.getCanvas().style.cursor = "");
   }
 
-  // 電車の白い破線と歩きの丸い点を、進む向きに流す（MapLibre の線の破線をずらしていく）
+  // 電車の白い破線を、進む向きに流す（MapLibre の線の破線をずらしていく）
   const N = 16;
   const TIES = Array.from({ length: N }, (_, i) => { const f = (i / N) * 4; return f < 2 ? [0, f, 2, 2 - f] : [f - 2, 2, 4 - f, 0]; });
-  const DOTS = Array.from({ length: N }, (_, i) => { const f = (i / N) * 2; return [0, f, 0, 2 - f]; });
   let k = -1;
   const ants = (ts) => {
     const n = Math.floor(ts / 80) % N;
-    if (n !== k) { k = n; map.setPaintProperty("route-ties", "line-dasharray", TIES[n]); map.setPaintProperty("route-walk", "line-dasharray", DOTS[n]); }
+    if (n !== k) { k = n; map.setPaintProperty("route-ties", "line-dasharray", TIES[n]); }
     requestAnimationFrame(ants);
   };
   requestAnimationFrame(ants);
