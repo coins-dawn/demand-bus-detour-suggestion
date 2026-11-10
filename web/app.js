@@ -236,17 +236,17 @@ function renderChart() {
 }
 
 // ------------------------------------------------------------------ サンプルの探索条件（見どころの違う結果が出る組み合わせ）
+// 1 から順に複雑になる: 同じ地区でちょうど着く → 同じ地区で寄り道 → 電車に乗り継ぐ → 電車・駅のまわりで寄り道 → 境目のバス停からタクシー
 const SAMPLES = [
-  { label: "サンプル1: 地区をまたいで電車へ。駅のまわりで寄り道（おすすめ）", stop: "401", hosp: "1111105386000", date: "20260702", T: 14 * 3600, dur: 3600 },
-  { label: "サンプル2: 電車で行き、病院のまわりで寄り道。帰りは駅のまわりで", stop: "401", hosp: "1111105386000", date: "20260702", T: 10 * 3600, dur: 3600 },
-  { label: "サンプル3: 同じ地区の中で、行きも帰りも寄り道", stop: "291", hosp: "1121124838600", date: "20260708", T: 10 * 3600, dur: 3600 },
-  { label: "サンプル4: 境目のバス停までかわまる、そこからタクシー", stop: "401", hosp: "1121125717200", date: "20260702", T: 14 * 3600, dur: 3600 },
-  { label: "サンプル5: 近くにバス停がない病院（タクシー）", stop: "291", hosp: "叶澤医院", date: "20260708", T: 10 * 3600, dur: 3600 },
+  { stop: "402", hosp: "1111105390900", date: "20260701", T: 10 * 3600, dur: 3600 },   // 川越古谷郵便局 → 愛和病院（地区1）
+  { stop: "291", hosp: "1121124838600", date: "20260708", T: 10 * 3600, dur: 3600 },   // 寺尾公民館 → きりむら内科医院（地区2）
+  { stop: "403", hosp: "1111105386000", date: "20260701", T: 10 * 3600, dur: 3600 },   // 川越今泉郵便局（地区1）→ 関本記念病院（地区2）
+  { stop: "407", hosp: "1111105368200", date: "20260701", T: 14 * 3600, dur: 3600 },   // 川越問屋町簡易郵便局（地区1）→ 川越同仁会病院（地区2）
+  { stop: "434", hosp: "1121101240400", date: "20260701", T: 10 * 3600, dur: 3600 },   // 杉下町公民館（地区1）→ 中島胃腸科医院（地区2）
 ];
 function fillSamples() {
-  for (const x of SAMPLES) if (!S.med.list.some((h) => h.id === x.hosp)) x.hosp = (S.med.list.find((h) => h.name === x.hosp) || {}).id;
   $("sample").innerHTML = `<option value="">えらばない（自分で入力する）</option>` +
-    SAMPLES.map((x, i) => `<option value="${i}">${esc(x.label)}</option>`).join("");
+    SAMPLES.map((x, i) => `<option value="${i}">サンプル${i + 1}</option>`).join("");
   $("sample").onchange = () => {
     const x = SAMPLES[+$("sample").value];
     if (!x || !$("sample").value) return;
@@ -690,7 +690,11 @@ function mapPad(p) {
   if (window.innerWidth <= 900) return 40;
   const pane = $("pane"), left = pane.offsetLeft + pane.offsetWidth;
   const right = $("mid").hidden ? 50 : $("mid").offsetWidth + 24 + 50;
-  return { top: p, bottom: p + 40, left: left + p, right: right + p };
+  // 左上の「表示」の箱と、左下の凡例にかからないように空ける
+  const ly = $("layers"), lg = $("legend"), h = $("map").offsetHeight;
+  const top = Math.max(p, ly.offsetTop + ly.offsetHeight + 24);
+  const bottom = Math.max(p + 40, h - lg.offsetTop + 24);
+  return { top, bottom, left: left + p, right: right + p };
 }
 function fitCoords(cs, maxZoom = 15.5) {
   if (!map || !cs || !cs.length) return;
