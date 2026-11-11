@@ -327,3 +327,14 @@ form select:invalid, form select.empty { color: #868e96; }
 .ic-account-group { --m: url(icons/account-group.svg); }
 .rt-mt.share { color: #9c4a00; display: flex; gap: 4px; align-items: center; }
 .rt-mt.share .ic { width: 15px; height: 15px; }
+/* 病院の休診日・受付時間（医療情報ネット） */
+.cal .day.shut { flex-direction: column; gap: 0; line-height: 1.1; opacity: .75; }
+.cal .day.shut small { font-size: 9px; font-weight: 700; color: #c92a2a; }
+.form-warn { font-size: 12px; line-height: 1.6; background: #fff5f5; border: 1px solid #ffc9c9; color: #a61e1e; border-radius: 8px; padding: 8px 10px; display: flex; gap: 6px; }
+.form-warn .ic { margin-top: 2px; }
+.rcband { position: absolute; inset: 0; pointer-events: none; }
+.rcband .rc { position: absolute; top: 0; bottom: 0; background: rgba(47, 158, 68, .10); border-left: 1.5px solid rgba(47, 158, 68, .55); border-right: 1.5px solid rgba(47, 158, 68, .55); }
+.rcline { font-size: 12px; color: var(--sub); margin: 4px 0; display: flex; gap: 6px; align-items: center; }
+.rcline i { width: 14px; height: 10px; background: rgba(47, 158, 68, .18); border: 1.5px solid rgba(47, 158, 68, .55); flex: none; }
+.tbtn.out { border: 1.5px dashed #868e96; opacity: .5; }
+.form-warn[hidden] { display: none; }

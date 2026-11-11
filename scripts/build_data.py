@@ -233,7 +233,7 @@ def main():
                 continue
             spots.append({"kind": k, "label": label, "group": group, "name": nm,
                           "lat": round(la, 6), "lon": round(lo, 6),
-                          "hours": t.get("opening_hours", "")})
+                          "hours": t.get("opening_hours", ""), "cuisine": t.get("cuisine", "")})
     # node と way の二重登録を落とす（同じ種類・同じ名前で 40m 以内）
     uniq = []
     for s in spots:

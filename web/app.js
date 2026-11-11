@@ -173,6 +173,7 @@ function closePop() { $("pop").hidden = true; }
 
 function renderCal() {
   const st = stats(cg()), byDate = new Map(S.data.days.map((x, i) => [x.date, i]));
+  const H = S.hosp && medOf(S.hosp);
   const ym = S.data.days[0].date.slice(0, 6), y = +ym.slice(0, 4), m = +ym.slice(4, 6);
   $("pop-title").textContent = `日付をえらぶ（${cgName()}の混み具合）`;
   const first = new Date(y, m - 1, 1), nd = new Date(y, m, 0).getDate(), lead = (first.getDay() + 6) % 7;
@@ -183,11 +184,12 @@ function renderCal() {
     if (idx === undefined) { h += `<span class="day off" title="運行の記録なし">${dd}</span>`; continue; }
     const l = level(st.tot[key], st.day.Q);
     const hol = HOLIDAYS.has(key) ? " hol" : "";
-    h += `<button type="button" class="day${idx === S.di ? " sel" : ""}${hol}" data-i="${idx}" style="background:${LV[l].c};color:${LV[l].ink}" title="${m}/${dd} 予約 ${st.tot[key]} 人・${LV[l].t}">${dd}</button>`;
+    const shut = H && hospDay(H, S.data.days[idx]).closed;
+    h += `<button type="button" class="day${idx === S.di ? " sel" : ""}${hol}${shut ? " shut" : ""}" data-i="${idx}" style="background:${LV[l].c};color:${LV[l].ink}" title="${m}/${dd} 予約 ${st.tot[key]} 人・${LV[l].t}${shut ? "・病院は休診" : ""}">${dd}${shut ? "<small>休診</small>" : ""}</button>`;
   }
   $("pop-body").innerHTML = `<div class="cal-title">${y}年${m}月</div><div class="cal">${h}</div>
     <div class="scale">${LV.map((x) => `<span><i style="background:${x.c}"></i>${x.t}</span>`).join("")}</div>
-    <p class="note">色は、その日に${cgName()}のかわまるに乗った人の数（実績）。${S.stop ? "" : "出発地を選ぶと、その地区の混み具合に切りかわります。"}この月の中で多いか少ないかを 4 段階で出しています。</p>`;
+    <p class="note">色は、その日に${cgName()}のかわまるに乗った人の数（実績）。${S.stop ? "" : "出発地を選ぶと、その地区の混み具合に切りかわります。"}この月の中で多いか少ないかを 4 段階で出しています。${H ? `「休診」は、${esc(H.name)}が休みの日です（医療情報ネットより）。` : ""}</p>`;
   $("pop-body").querySelectorAll("button.day").forEach((b) => b.onclick = () => { setDate(+b.dataset.i); closePop(); });
 }
 function timeChoices() {
@@ -211,10 +213,15 @@ function renderChart() {
     bars += `<i class="${cls}" style="height:${(b[k] / max) * 100}%" title="${fmt(t)}〜 ${isBrk ? "休憩" : b[k] + "人"}"></i>`;
   }
   const pc = (t) => ((t - T0) / (T1 - T0)) * 100;
+  const H = S.hosp && medOf(S.hosp), hd = H && hospDay(H, d);
+  const outT = (t) => hd && (hd.closed || !hd.slots.some(([a, z]) => t >= a && t <= z));
   const btns = timeChoices().map((t) => {
     const l = level(winCount(b, t - 3600), st.win.Q);
-    return `<button type="button" class="tbtn${t === T ? " sel" : ""}" data-t="${t}" style="--lv:${LV[l].c};--ink:${LV[l].ink}">${fmt(t)}</button>`;
+    return `<button type="button" class="tbtn${t === T ? " sel" : ""}${outT(t) ? " out" : ""}" data-t="${t}" style="--lv:${LV[l].c};--ink:${LV[l].ink}"${outT(t) ? ` title="${hd.lab}の時間外"` : ""}>${fmt(t)}</button>`;
   }).join("");
+  const band = hd && !hd.closed ? hd.slots.map(([a, z]) => `<span class="rc" style="left:${pc(Math.max(a, T0))}%;width:${pc(Math.min(z, T1)) - pc(Math.max(a, T0))}%"></span>`).join("") : "";
+  const hnote = !H ? "" : hd.closed ? `<p class="note-card bad"><span class="ic ic-information-outline"></span>${esc(H.name)}は、この日は休診日です（医療情報ネットより）。</p>`
+    : `<div class="rcline"><i></i>${esc(H.name)}の${hd.lab}: ${slotText(hd)}（医療情報ネットより）。時間外の時刻は点線です。</div>`;
   let verdict = "";
   if (T != null) {
     const n = winCount(b, T - 3600), l = level(n, st.win.Q);
@@ -228,7 +235,8 @@ function renderChart() {
   $("pop-body").innerHTML = `
     <div class="dayline">${+d.date.slice(4, 6)}月${+d.date.slice(6)}日（${d.wd}）・${cgName()}</div>
     ${verdict}
-    <div class="chart"><div class="plot"><div class="bars">${bars}</div></div>
+    ${hnote}
+    <div class="chart"><div class="plot">${band ? `<div class="rcband">${band}</div>` : ""}<div class="bars">${bars}</div></div>
       <div class="axis">${[8, 10, 12, 14, 16, 18].map((h) => `<span style="left:${pc(h * 3600)}%">${h}時</span>`).join("")}</div></div>
     <div class="tbtns">${btns}</div>
     <p class="note">棒は、この日の 30 分ごとに乗った人の数（実績）。しま模様は運転手の休憩。ボタンの色は、着く時刻の前の 1 時間の混み具合です。${E != null ? "青い枠は、診察が終わってからの 1 時間（帰り）です。" : ""}</p>`;
@@ -277,6 +285,7 @@ function syncForm() {
   $("time").textContent = S.T != null ? fmt(S.T) : "えらぶ";
   $("time").classList.toggle("empty", S.T == null);
   $("go").disabled = !(S.stop && S.hosp && S.di >= 0 && S.T != null && S.dur != null);
+  hospWarn();
 }
 function setDate(i) {
   S.di = i;
@@ -325,7 +334,8 @@ async function search(ev) {
   $("go-sub").textContent = `${stopName(S.stop)} → ${H.name}、${fmt(S.T)} までに着く経路です。`;
   const notes = [];
   const hn = hospNote(H);
-  if (hn) notes.push(`<p class="note-card warn"><span class="ic ic-information-outline"></span>${hn}</p>`);
+  if (hn) notes.push(`<p class="note-card bad"><span class="ic ic-information-outline"></span>${hn}</p>`);
+  else if (hospOther(H)) notes.push(`<p class="note-card warn"><span class="ic ic-information-outline"></span>${hospOther(H)}</p>`);
   if (r.mode === "rail") notes.push(`<p class="note-card"><span class="ic ic-train"></span>${esc(H.name)}は${S.data.districts[H.g].name}にあり、${S.data.districts[r.g].name}のかわまるでは行けません（地区をまたいで乗れません）。電車やタクシーと組み合わせます。</p>`);
   if (r.none) notes.push(`<p class="note-card bad">${noneText(r, H, "go")}</p>`);
   $("go-notes").innerHTML = notes.join("");
@@ -394,18 +404,32 @@ function noneText(r, H, dir) {
   return `${dir === "go" ? `${fmt(r.T)} に間に合う` : `${fmt(r.T)} から 1 時間のあいだに乗れる`}${by}の便は、ほかの予約で埋まっています。${alt}か、時刻を変えてさがしてください。`;
 }
 // 医療情報ネットの休診日・外来受付時間とくらべる
-function hospNote(H) {
-  const d = day(), dt = +d.date.slice(6), w = WD.indexOf(d.wd), nth = Math.ceil(dt / 7);
-  const key = HOLIDAYS.has(d.date) ? "祝" : d.wd;
-  const slots = H.rc[key] || H.sh[key] || [];
-  const closed = HOLIDAYS.has(d.date) ? H.hol === "0" : (H.ow[w] === "0" || H.wk[(nth - 1) * 7 + w] === "0" || !slots.length);
-  const md = `${+d.date.slice(4, 6)}月${dt}日（${d.wd}${HOLIDAYS.has(d.date) ? "・祝" : ""}）`;
-  if (closed) return `医療情報ネットでは、${esc(H.name)}は${md}は休診です。`;
-  const hm = (s) => Engine.hm(s);
-  const ok = slots.some(([a, b]) => S.T >= hm(a) - 30 * 60 && S.T <= hm(b));
-  const lab = H.rc[key] ? "外来受付" : "診療時間";
-  if (!ok) return `${fmt(S.T)} は${esc(H.name)}の${lab}（${slots.map(([a, b]) => `${a}〜${b}`).join("、")}）の外です。`;
+// 医療情報ネットの曜日ごとの時間で、その日のようすを見る
+//   closed: 休診日 ／ slots: 外来受付（なければ診療時間）の [始め, 終わり] ／ lab: どちらの時間か
+function hospDay(H, d) {
+  const dt = +d.date.slice(6), w = WD.indexOf(d.wd), nth = Math.ceil(dt / 7), hol = HOLIDAYS.has(d.date);
+  const key = hol ? "祝" : d.wd;
+  const slots = (H.rc[key] || H.sh[key] || []).map(([a, b]) => [Engine.hm(a), Engine.hm(b), a, b]);
+  const closed = hol ? H.hol === "0" || !slots.length : (H.ow[w] === "0" || H.wk[(nth - 1) * 7 + w] === "0" || !slots.length);
+  return { closed, slots, lab: H.rc[key] ? "外来受付" : "診療時間", md: `${+d.date.slice(4, 6)}月${dt}日（${d.wd}${hol ? "・祝" : ""}）` };
+}
+const slotText = (x) => x.slots.map(([, , a, b]) => `${a.replace(/^0/, "")}〜${b.replace(/^0/, "")}`).join("、");
+// 予約時刻が休診日・時間外なら、その知らせ（なければ ""）
+function hospNote(H, d = day(), T = S.T) {
+  const x = hospDay(H, d);
+  if (x.closed) return `${esc(H.name)}は、${x.md}は休診日です（医療情報ネットより）。日付を変えてください。`;
+  if (T == null) return "";
+  if (!x.slots.some(([a, b]) => T >= a && T <= b)) return `${fmt(T)} は、${esc(H.name)}の${x.lab}（${slotText(x)}）の時間外です（医療情報ネットより）。予約時刻を変えてください。`;
   return "";
+}
+// 休み以外の注意（「その他の休診日」に書かれていること）
+function hospOther(H) { return H.other ? `ほかの休み: ${esc(H.other)}（医療情報ネットより）。` : ""; }
+function hospWarn() {
+  const el = $("hosp-warn");
+  const H = S.hosp && medOf(S.hosp), d = S.di >= 0 ? day() : null;
+  const t = H && d ? hospNote(H, d) : "";
+  el.hidden = !t;
+  el.innerHTML = t ? `<span class="ic ic-information-outline"></span><span>${t}</span>` : "";
 }
 
 function stepRows(steps) {
@@ -420,7 +444,7 @@ function stepRows(steps) {
       case "taxi": return li(s.wait != null || s.call ? fmt(s.t) : "", "taxi", `タクシーで約 ${mins(s.sec)} 分（約 ${s.km.toFixed(1)}km）` +
         (s.wait > 5 * 60 ? `<br><span class="spotname">降りてから ${dur(s.wait)} 後に来るよう、前もって呼んでおく</span>` : "") +
         (s.call ? `<br><span class="spotname">病院を出るときに呼ぶ（来るまで約 ${mins(s.call)} 分）</span>` : ""), s.wait != null || s.call ? "" : "walk");
-      case "waitstop": return s.sec > 5 * 60 ? li("", "clock-outline", `乗り場で ${dur(s.sec)} 待つ`, "walk") : "";
+      case "waitstop": return s.sec > 5 * 60 ? li("", "clock-outline", `${s.where || "乗り場"}で ${dur(s.sec)} 待つ`, "walk") : "";
       case "waithosp": return s.sec > 5 * 60 ? li("", "clock-outline", `病院で ${dur(s.sec)} 待つ`, "walk") : "";
       case "station": return li(fmt(s.t), "train", `${esc(stName(s.st))}へ（改札・ホームまで約 ${mins(s.sec)} 分）`);
       case "train": return li(fmt(s.t), "train", `<b style="color:${s.color}">${esc(s.lineName)}</b> ${esc(s.ttype)}・${esc(s.dest)}行き<br><span class="spotname">${esc(stName(s.from))} → ${esc(stName(s.to))}（${fmt(s.t1)} 着）</span>`, "train");
@@ -529,7 +553,7 @@ function routeItems(legs) {
         case "alight":
           items.push({ kind: "seg", mode: "bus", color, t0: board.t, t1: s.t, g: board.g, legName, share: board.share });
           node(s.stop, { name: stopName(s.stop), arr: s.t, tags: [s.home ? "降車（家の近く）" : "降車"], type: s.home ? "home" : "stop" }); break;
-        case "waitstop": if (s.sec > 5 * 60) node(s.stop, { name: stopName(s.stop), arr: s.t, type: "stop", subs: [`乗り場で ${dur(s.sec)} 待つ`] }); break;
+        case "waitstop": if (s.sec > 5 * 60) node(s.stop, { name: stopName(s.stop), arr: s.t, type: "stop", subs: [`${s.where || "乗り場"}で ${dur(s.sec)} 待つ`] }); break;
         case "waithosp": if (s.sec > 5 * 60) node("h" + s.h, { name: medOf(s.h).name, dep: s.t + s.sec, type: "hosp", subs: [`病院で ${dur(s.sec)} 待つ`] }); break;
         case "walk": if (s.sec > 0) items.push({ kind: "seg", mode: "walk", color, sec: s.sec }); break;
         case "taxi": {

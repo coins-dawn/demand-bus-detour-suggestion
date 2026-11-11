@@ -22,6 +22,59 @@
 
   const hav = Pl.hav;
 
+  // 寄り道の場所の種類ごとに、ふつう開いている時間（OSM に営業時間があればそちら）と、ふつう過ごせる長さの上限
+  //   meal: 飲食店は食事どき（昼 11:00〜14:00 に入る、夜は 17:00 から）だけ
+  //   wk:   平日だけ開いている（郵便局・銀行）
+  const H_ = (h) => h * 3600;
+  const STAY = {
+    cafe: { open: [H_(8), H_(20)], max: 60 * 60 },
+    fast_food: { open: [H_(7), H_(22)], max: 30 * 60 },
+    restaurant: { open: [H_(11), H_(21)], max: 50 * 60, meal: true },
+    supermarket: { open: [H_(9), H_(21)], max: 40 * 60 },
+    books: { open: [H_(10), H_(21)], max: 40 * 60 },
+    drug: { open: [H_(9), H_(21)], max: 20 * 60 },
+    post: { open: [H_(9), H_(17)], max: 15 * 60, wk: true },
+    bank: { open: [H_(9), H_(15)], max: 20 * 60, wk: true },
+    bakery: { open: [H_(8), H_(19)], max: 15 * 60 },
+    convenience: { open: [0, H_(24)], max: 10 * 60 },
+    library: { open: [H_(9), H_(19)], max: 90 * 60 },
+    community: { open: [H_(9), H_(21)], max: 60 * 60 },
+    park: { open: [H_(6), H_(18)], max: 30 * 60 },
+    bench: { open: [H_(6), H_(18)], max: 20 * 60 },
+  };
+  // 通院の前後に寄る場所としてありえないもの: お酒の店・焼肉、持ち帰りだけの店
+  const NO_SPOT = /居酒屋|酒場|酒蔵|串|焼鳥|やきとり|鳥良|鳥八|鳥貴族|バル|Bar|BAR|Pub|パブ|スナック|ワイン|Wine|三昧|和民|笑笑|白木屋|魚民|庄や|はなの舞|焼肉|ホルモン|牛角|安楽亭|パパん家|ほっともっと|オリジン|小僧寿し|からあげ|唐揚|銀だこ|京たこ|クレープ|サーティーワン/;
+  const NO_CUISINE = /izakaya|barbecue|bar|pub|yakitori|bento/;
+  const WD_OSM = { 月: "Mo", 火: "Tu", 水: "We", 木: "Th", 金: "Fr", 土: "Sa", 日: "Su" };
+  const DAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+  // OSM の opening_hours（よくある書き方だけ）→ その日の [開く, 閉まる] の列。読めなければ null
+  function openSpans(h, wd, hol) {
+    if (!h) return null;
+    if (h.trim() === "24/7") return [[0, H_(24)]];
+    let out = null;
+    for (const rule of h.split(";").map((x) => x.trim()).filter(Boolean)) {
+      const m = rule.match(/^((?:(?:Mo|Tu|We|Th|Fr|Sa|Su|PH)(?:-(?:Mo|Tu|We|Th|Fr|Sa|Su))?,?)+)?\s*(.*)$/);
+      if (!m) return null;
+      if (m[1]) {
+        const hit = m[1].split(",").filter(Boolean).some((tok) => {
+          if (tok === "PH") return hol;
+          const [a, b] = tok.split("-"), i = DAYS.indexOf(a), j = b ? DAYS.indexOf(b) : i, k = DAYS.indexOf(wd);
+          return i <= j ? k >= i && k <= j : k >= i || k <= j;
+        });
+        if (!hit) continue;
+      }
+      if (/closed|off/.test(m[2])) { out = []; continue; }
+      const tm = [...m[2].matchAll(/(\d\d):(\d\d)-(\d\d):(\d\d)/g)].map((x) => {
+        const a = +x[1] * 3600 + +x[2] * 60; let b = +x[3] * 3600 + +x[4] * 60;
+        if (b <= a) b += H_(24);
+        return [a, b];
+      });
+      if (!tm.length) return null;
+      out = tm;
+    }
+    return out;
+  }
+
   class Trip {
     constructor({ data, med, rail, walk }) {
       this.data = data;
@@ -270,16 +323,17 @@
         for (const sp of this.spotsAt(hk)) {
           const w1 = this.walkS(a.x, sp.key), w2 = this.walkS(sp.key, hk);
           if (w1 > 12 * 60) continue;
-          const stay = T - a.td - 120 - w1 - w2;
-          if (stay < MIN_STAY || T - a.td > W + 30 * 60) continue;
-          cands.push({ a, sp, w1, w2, stay, score: w1 + w2 + 2 * a.extra + 0.3 * Math.max(0, stay - 45 * 60) });
+          if (T - a.td > W + 30 * 60) continue;
+          const f = this.stayFit(sp, a.td + 120 + w1, T - a.td - 120 - w1 - w2);
+          if (!f) continue;
+          cands.push({ a, sp, w1, w2, stay: f.stay, rest: f.rest, score: w1 + w2 + 2 * a.extra + 0.5 * f.rest });
         }
       }
       for (const c of pick(cands)) {
         const t1 = c.a.td + 120;
         opts.push({ kind: "spot", group: c.sp.s.group, spot: c.sp, stay: c.stay, gap: T - c.a.td, start: c.a.tp, end: T, legs: [c.a],
           steps: [this.sBoard(c.a), this.sAlight(c.a), this.sWalk(c.a.x, c.sp.key, t1), this.sStay(c.sp, t1 + c.w1, c.stay),
-            this.sWalk(c.sp.key, hk, T - c.w2), this.sHosp(H, T, T)] });
+            this.sWalk(c.sp.key, hk, T - c.w2 - c.rest), this.sHosp(H, T - c.rest, T)] });
       }
       if (late) opts.push(mk(late, { detour: true }));
       if (early) opts.push(mk(early, { early: true }));
@@ -343,9 +397,10 @@
           const cands = [];
           for (const sp of this.spotsAt(r.X.stop)) {
             const w1 = this.walkS(r.X.stop, sp.key), w2 = w1;
-            const stay = wait - 120 - w1 - w2;
-            if (w1 > 10 * 60 || stay < MIN_STAY) continue;
-            cands.push({ sp, w1, w2, stay, score: w1 });
+            if (w1 > 10 * 60) continue;
+            const f = this.stayFit(sp, r.first.bus.td + 120 + w1, wait - 120 - w1 - w2);
+            if (!f) continue;
+            cands.push({ sp, w1, w2, stay: f.stay, rest: f.rest, score: w1 + 0.5 * f.rest });
           }
           for (const c of pick(cands)) opts.push(this.railRouteGo(O, H, T, r, c));
         }
@@ -358,9 +413,10 @@
         const cands = [];
         for (const sp of this.spotsAt(hk)) {
           const w1 = this.walkS(from, sp.key), w2 = this.walkS(sp.key, hk);
-          const stay = T - t0 - w1 - w2;
-          if (w1 > 12 * 60 || stay < MIN_STAY) continue;
-          cands.push({ sp, w1, w2, stay, score: w1 + w2, from, t0, hosp: true });
+          if (w1 > 12 * 60) continue;
+          const f = this.stayFit(sp, t0 + w1, T - t0 - w1 - w2);
+          if (!f) continue;
+          cands.push({ sp, w1, w2, stay: f.stay, rest: f.rest, score: w1 + w2 + 0.5 * f.rest, from, t0, hosp: true });
         }
         for (const c of pick(cands)) opts.push(this.railRouteGo(O, H, T, r, c));
       }
@@ -377,7 +433,8 @@
         start = a.tp;
         if (c && !c.hosp) {
           const t1 = a.td + 120;
-          steps.push(this.sWalk(Xs, c.sp.key, t1), this.sStay(c.sp, t1 + c.w1, c.stay), this.sWalk(c.sp.key, Xs, r.dep - PLAT - c.w2));
+          steps.push(this.sWalk(Xs, c.sp.key, t1), this.sStay(c.sp, t1 + c.w1, c.stay), this.sWalk(c.sp.key, Xs, r.dep - PLAT - c.w2 - c.rest));
+          if (c.rest) steps.push(this.sWaitStop(Xs, r.dep - PLAT - c.rest, r.dep - PLAT, "駅"));
         }
       } else if (r.first.walk) {
         steps.push({ type: "start", t: r.first.start, place: O }, this.sWalk(O, Xs, r.first.start));
@@ -393,7 +450,7 @@
       steps.push({ type: "exit", t: arr, st: r.rp.end });
       if (!r.L.walk) { const b = r.L.bus; legs.push(b); steps.push(this.sBoard(b), this.sAlight(b)); }
       if (c && c.hosp) {
-        steps.push(this.sWalk(c.from, c.sp.key, c.t0), this.sStay(c.sp, c.t0 + c.w1, c.stay), this.sWalk(c.sp.key, hk, T - c.w2), this.sHosp(H, T, T));
+        steps.push(this.sWalk(c.from, c.sp.key, c.t0), this.sStay(c.sp, c.t0 + c.w1, c.stay), this.sWalk(c.sp.key, hk, T - c.w2 - c.rest), this.sHosp(H, T - c.rest, T));
       } else if (r.L.walk) {
         steps.push(this.sWalk(Y.stop, hk, arr + 120), this.sHosp(H, arr + 120 + r.L.ws, T));
       } else {
@@ -462,16 +519,16 @@
         for (const sp of this.spotsAt(hk)) {
           const w1 = this.walkS(hk, sp.key), w2 = this.walkS(sp.key, d.x);
           if (w2 > 12 * 60) continue;
-          const stay = d.tp - T - w1 - w2;
-          if (stay < MIN_STAY) continue;
+          const f = this.stayFit(sp, T + w1, d.tp - T - w1 - w2);
+          if (!f) continue;
           // 遅い便に乗るほうを先に（診察がのびても間に合う）
-          cands.push({ d, sp, w1, w2, stay, score: w1 + w2 - (buffer ? 0.3 * (d.tp - now.tp) : -0.2 * (d.tp - now.tp)) });
+          cands.push({ d, sp, w1, w2, stay: f.stay, rest: f.rest, score: w1 + w2 + 0.5 * f.rest - (buffer ? 0.3 * (d.tp - now.tp) : -0.2 * (d.tp - now.tp)) });
         }
       }
       for (const c of pick(cands)) {
         opts.push({ kind: "spot", group: c.sp.s.group, spot: c.sp, stay: c.stay, gap: c.d.tp - T, slack: slack(c.d), start: T, end: c.d.td, legs: [c.d],
-          steps: [this.sHospOut(H, T), this.sWalk(hk, c.sp.key, T), this.sStay(c.sp, T + c.w1, c.stay), this.sWalk(c.sp.key, c.d.x, c.d.tp - c.w2),
-            this.sBoard(c.d, c.d.y), this.sAlight(c.d, true)] });
+          steps: [this.sHospOut(H, T), this.sWalk(hk, c.sp.key, T), this.sStay(c.sp, T + c.w1, c.stay), this.sWalk(c.sp.key, c.d.x, c.d.tp - c.w2 - c.rest),
+            this.sWaitStop(c.d.x, c.d.tp - c.rest, c.d.tp), this.sBoard(c.d, c.d.y), this.sAlight(c.d, true)] });
       }
       return opts;
     }
@@ -525,9 +582,10 @@
           const cands = [];
           for (const sp of this.spotsAt(r.X.stop)) {
             const w1 = this.walkS(r.X.stop, sp.key);
-            const stay = wait - w1 * 2;
-            if (w1 > 10 * 60 || stay < MIN_STAY) continue;
-            cands.push({ sp, w1, w2: w1, stay, score: w1 });
+            if (w1 > 10 * 60) continue;
+            const f = this.stayFit(sp, r.arr + PLAT + w1, wait - w1 * 2);
+            if (!f) continue;
+            cands.push({ sp, w1, w2: w1, stay: f.stay, rest: f.rest, score: w1 + 0.5 * f.rest });
           }
           for (const c of pick(cands)) opts.push(this.railRouteBack(H, O, T, r, c));
         }
@@ -553,7 +611,8 @@
         legs.push(d);
         if (c) {
           const t1 = r.arr + PLAT;
-          steps.push(this.sWalk(Xs, c.sp.key, t1), this.sStay(c.sp, t1 + c.w1, c.stay), this.sWalk(c.sp.key, Xs, d.tp - c.w2));
+          steps.push(this.sWalk(Xs, c.sp.key, t1), this.sStay(c.sp, t1 + c.w1, c.stay), this.sWalk(c.sp.key, Xs, d.tp - c.w2 - c.rest),
+            this.sWaitStop(Xs, d.tp - c.rest, d.tp));
         } else steps.push(this.sWaitStop(Xs, r.arr + PLAT, d.tp));
         steps.push(this.sBoard(d, d.y), this.sAlight(d, true));
         end = d.td;
@@ -598,10 +657,26 @@
     sBoard(a, stop) { return { type: "board", t: a.tp, stop: stop || a.r.p, g: a.g, booked: a.t, share: share(a.plan, a.r, this.eng[a.g]) }; }
     sAlight(a, home) { return { type: "alight", t: a.td, stop: a.r.d, home: !!home }; }
     sWalk(from, to, t) { const sec = this.walkS(from, to); return { type: "walk", t, sec, from, to }; }
+    // 寄り道の場所 sp に tA に着き、長くて win 秒いられるとき: 開いていて、ふつう過ごせる長さに収まる分を返す（無理なら null）
+    //   {stay: 過ごす秒, rest: 残り（次の場所で待つ）}
+    stayFit(sp, tA, win) {
+      const s = sp.s, R = STAY[s.kind];
+      if (!R || win < MIN_STAY) return null;
+      if (NO_SPOT.test(s.name || "") || NO_CUISINE.test(s.cuisine || "")) return null;
+      const d = this.day || {};
+      if (R.wk && (this.cal === "H")) return null;
+      const spans = openSpans(s.hours, WD_OSM[d.wd] || "Mo", HOLIDAYS.has(d.date)) || [R.open];
+      const sp0 = spans.find(([a, b]) => tA >= a && tA + MIN_STAY <= b);
+      if (!sp0) return null;
+      if (R.meal && !((tA >= H_(11) && tA <= H_(13.5)) || tA >= H_(17))) return null;
+      const stay = Math.min(win, R.max, sp0[1] - tA);
+      if (stay < MIN_STAY) return null;
+      return { stay, rest: win - stay };
+    }
     sStay(sp, t, sec) { return { type: "stay", t, sec, spot: sp.s, key: sp.key }; }
     sHosp(H, t, until) { return { type: "hospital", t, h: H.id, until }; }
     sHospOut(H, t) { return { type: "hospout", t, h: H.id }; }
-    sWaitStop(stop, t, tp) { return { type: "waitstop", t, sec: tp - t, stop }; }
+    sWaitStop(stop, t, tp, where) { return { type: "waitstop", t, sec: tp - t, stop, where }; }
   }
 
   // 乗り合い: 乗っているあいだに同じ車に乗っているほかの人の数と、途中で寄るバス停の数
@@ -634,6 +709,6 @@
     return out;
   }
 
-  const api = { Trip, GROUPS, PLAT, WALK_M_PER_MIN };
+  const api = { Trip, GROUPS, PLAT, WALK_M_PER_MIN, STAY };
   if (isNode) module.exports = api; else root.TripPlan = api;
 })(this);
