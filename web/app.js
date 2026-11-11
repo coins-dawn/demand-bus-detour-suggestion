@@ -895,7 +895,7 @@ async function initMap() {
     c.getContext("2d").drawImage(img, 0, 0, 28, 28);
     return c.getContext("2d").getImageData(0, 0, 28, 28);
   })());
-  map.addSource("route", { type: "geojson", data: fc([]) });
+  map.addSource("route", { type: "geojson", data: fc([]), lineMetrics: true });   // line-progress（線の上の位置）で光る帯を流す
   const legColor = ["match", ["get", "leg"], "go", ME, "back", BACK, "#495057"];
   const isK = (k) => ["==", ["get", "kind"], k];
   map.addLayer({ id: "route-taxi", type: "line", source: "route", filter: isK("taxi"),
@@ -908,6 +908,8 @@ async function initMap() {
     layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#fff", "line-width": 13, "line-offset": ["match", ["get", "leg"], "back", 9, 0] } });
   map.addLayer({ id: "route-bus", type: "line", source: "route", filter: isK("bus"),
     layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": legColor, "line-width": 8, "line-offset": ["match", ["get", "leg"], "back", 9, 0] } });
+  map.addLayer({ id: "route-bus-pulse", type: "line", source: "route", filter: isK("bus"),
+    layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-width": 6, "line-offset": ["match", ["get", "leg"], "back", 9, 0], "line-gradient": "rgba(0,0,0,0)" } });
   map.addLayer({ id: "route-arrow", type: "symbol", source: "route", filter: isK("bus"),
     layout: { "symbol-placement": "line", "symbol-spacing": 54, "icon-image": "bus-arrow", "icon-size": 0.8, "icon-offset": ["match", ["get", "leg"], "back", ["literal", [0, 11.3]], ["literal", [0, 0]]],
       "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true } });
@@ -921,6 +923,8 @@ async function initMap() {
   const walkOff = ["match", ["get", "leg"], "back", 9, 3];
   map.addLayer({ id: "route-walk", type: "line", source: "route", filter: isK("walk"),
     layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": legColor, "line-width": 2, "line-opacity": 0.45, "line-offset": walkOff } });
+  map.addLayer({ id: "route-walk-pulse", type: "line", source: "route", filter: isK("walk"),
+    layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-width": 5, "line-offset": walkOff, "line-gradient": "rgba(0,0,0,0)" } });
   map.addLayer({ id: "route-walk-arrow", type: "symbol", source: "route", filter: isK("walk"),
     layout: { "symbol-placement": "line", "symbol-spacing": 14, "icon-image": ["concat", "walk-", ["get", "leg"]], "icon-size": 0.75,
       "icon-offset": ["match", ["get", "leg"], "back", ["literal", [0, 12]], ["literal", [0, 4]]],
@@ -962,13 +966,33 @@ async function initMap() {
     map.on("mouseleave", l, () => map.getCanvas().style.cursor = "");
   }
 
-  // 電車の白い破線を、進む向きに流す（MapLibre の線の破線をずらしていく）
+  // 進む向きに動かす: 電車の白い破線・タクシーの破線（破線をずらす）、かわまると歩き（光る帯を流す）
   const N = 16;
   const TIES = Array.from({ length: N }, (_, i) => { const f = (i / N) * 4; return f < 2 ? [0, f, 2, 2 - f] : [f - 2, 2, 4 - f, 0]; });
   let k = -1;
+  // タクシー: 長い破線（3, 1.6）をずらしていく
+  const TAXI = Array.from({ length: N }, (_, i) => { const L = 4.6, f = (i / N) * L; return f < 1.6 ? [0, f, 3, 1.6 - f] : [f - 1.6, 1.6, L - f, 0]; });
+  // かわまる・歩き: 線の始まり（0）から終わり（1）へ、光る帯を 3 本ずつ流す
+  const pulse = (t, rgb, a, w) => {
+    const stops = [];
+    for (let i = 0; i <= 60; i++) {
+      const x = i / 60;
+      let v = 0;
+      for (const c of [t, t + 1 / 3, t + 2 / 3]) { const d = Math.abs(((x - c) % 1 + 1.5) % 1 - 0.5); v = Math.max(v, 1 - d / w); }
+      stops.push(x, `rgba(${rgb},${(Math.max(0, v) * a).toFixed(3)})`);
+    }
+    return ["interpolate", ["linear"], ["line-progress"], ...stops];
+  };
+  let last = 0;
   const ants = (ts) => {
     const n = Math.floor(ts / 80) % N;
-    if (n !== k) { k = n; map.setPaintProperty("route-ties", "line-dasharray", TIES[n]); }
+    if (n !== k) { k = n; map.setPaintProperty("route-ties", "line-dasharray", TIES[n]); map.setPaintProperty("route-taxi", "line-dasharray", TAXI[n]); }
+    if (ts - last > 60 && map.getSource("route")._data.features.length) {
+      last = ts;
+      const t = (ts / 4000) % 1;
+      map.setPaintProperty("route-bus-pulse", "line-gradient", pulse(t, "255,255,255", 0.9, 0.06));
+      map.setPaintProperty("route-walk-pulse", "line-gradient", pulse((ts / 3000) % 1, "33,37,41", 0.55, 0.07));
+    }
     requestAnimationFrame(ants);
   };
   requestAnimationFrame(ants);
