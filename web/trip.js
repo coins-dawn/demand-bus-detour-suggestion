@@ -232,28 +232,47 @@
     accOf(H) { return (H.acc || []).filter(([, m]) => m <= MAX_ACC_M).map(([s]) => s); }
 
     goDemand(O, H, T) {
-      const g = H.g, P = this.P[g], plan = this.plans[g], hk = "h" + H.id;
+      const g = H.g, P = this.P[g], plan = this.plans[g], hk = "h" + H.id, D = this.eng[g];
       const xs = this.accOf(H).filter((x) => x !== O);
-      const res = [];
+      // 着く時刻を 10 分ずつ前にずらして、乗れる便をいくつも集める（同じ便は 1 つに）
+      const seen = new Set(), res = [];
       for (const x of xs) {
         const wx = this.walkS(x, hk);
-        const a = P.latestArrival(plan, O, x, T - wx, T - W - wx - 30 * 60);
-        if (a) res.push(Object.assign(a, { wx, g }));
+        for (let dl = T - wx; dl >= T - W - wx; dl -= 10 * 60) {
+          const a = P.latestArrival(plan, O, x, dl, T - W - wx - 30 * 60);
+          if (!a) break;
+          const key = `${x}|${a.t}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            // 回り道: ひとりで乗ったときより何秒長く乗るか（相乗りの迎え・送りで遠回りする分）
+            const solo = E.SVC_P + D.drive(D.ix[O], D.ix[x]);
+            res.push(Object.assign(a, { wx, g, gap: T - a.td - wx, extra: Math.max(0, a.td - a.tp - solo) }));
+          }
+          dl = Math.min(dl, a.td);
+        }
       }
       if (!res.length) return [];
-      const direct = res.slice().sort((p, q) => (p.td + p.wx) - (q.td + q.wx)).pop();
-      const gap = T - direct.td - direct.wx;
-      const opts = [{ kind: "direct", gap, start: direct.tp, end: T, legs: [direct],
-        steps: [this.sBoard(direct), this.sAlight(direct), this.sWalk(direct.x, hk, direct.td + 120), this.sHosp(H, direct.td + 120 + direct.wx, T)] }];
-      if (gap <= ON_TIME) return opts;
+      // いちばんの便: 待ちの短さと、回り道の少なさで選ぶ（相乗りの迎え・送りで遠回りする分は 3 倍で数える）
+      const cost = (a) => a.gap + 3 * a.extra;
+      const direct = res.slice().sort((p, q) => cost(p) - cost(q))[0];
+      const mk = (a, more) => Object.assign({ kind: "direct", gap: a.gap, start: a.tp, end: T, legs: [a],
+        steps: [this.sBoard(a), this.sAlight(a), this.sWalk(a.x, hk, a.td + 120), this.sHosp(H, a.td + 120 + a.wx, T)] }, more);
+      // もっとちょうどに着くが、遠回りする便（いちばんにはしない。うしろに出す）
+      const late = res.filter((a) => a.gap < direct.gap - 10 * 60).sort((p, q) => p.gap - q.gap)[0];
+      const opts = [mk(direct, late ? { lateAlt: true } : {})];
+      // 早めの便（まっすぐ行って待合室で待つ）: いちばんの便より 15 分以上早く着くもの
+      const early = res.filter((a) => a.gap >= direct.gap + 15 * 60 && a.extra < 10 * 60)
+        .sort((p, q) => (p.gap + p.extra) - (q.gap + q.extra))[0];
+      // 寄り道: 早めに着く便で、病院のまわりで過ごす
       const cands = [];
       for (const a of res) {
+        if (a.gap < ON_TIME + MIN_STAY) continue;
         for (const sp of this.spotsAt(hk)) {
           const w1 = this.walkS(a.x, sp.key), w2 = this.walkS(sp.key, hk);
           if (w1 > 12 * 60) continue;
           const stay = T - a.td - 120 - w1 - w2;
           if (stay < MIN_STAY || T - a.td > W + 30 * 60) continue;
-          cands.push({ a, sp, w1, w2, stay, score: w1 + w2 - 0.2 * (a.td - direct.td) });
+          cands.push({ a, sp, w1, w2, stay, score: w1 + w2 + 2 * a.extra + 0.3 * Math.max(0, stay - 45 * 60) });
         }
       }
       for (const c of pick(cands)) {
@@ -262,6 +281,8 @@
           steps: [this.sBoard(c.a), this.sAlight(c.a), this.sWalk(c.a.x, c.sp.key, t1), this.sStay(c.sp, t1 + c.w1, c.stay),
             this.sWalk(c.sp.key, hk, T - c.w2), this.sHosp(H, T, T)] });
       }
+      if (late) opts.push(mk(late, { detour: true }));
+      if (early) opts.push(mk(early, { early: true }));
       return opts;
     }
 
@@ -574,7 +595,7 @@
     }
 
     // ---------------------------------------------------------------- 手順（表示用）
-    sBoard(a, stop) { return { type: "board", t: a.tp, stop: stop || a.r.p, g: a.g, booked: a.t }; }
+    sBoard(a, stop) { return { type: "board", t: a.tp, stop: stop || a.r.p, g: a.g, booked: a.t, share: share(a.plan, a.r, this.eng[a.g]) }; }
     sAlight(a, home) { return { type: "alight", t: a.td, stop: a.r.d, home: !!home }; }
     sWalk(from, to, t) { const sec = this.walkS(from, to); return { type: "walk", t, sec, from, to }; }
     sStay(sp, t, sec) { return { type: "stay", t, sec, spot: sp.s, key: sp.key }; }
@@ -583,6 +604,20 @@
     sWaitStop(stop, t, tp) { return { type: "waitstop", t, sec: tp - t, stop }; }
   }
 
+  // 乗り合い: 乗っているあいだに同じ車に乗っているほかの人の数と、途中で寄るバス停の数
+  function share(plan, r, D) {
+    if (!plan || !r) return null;
+    const on = new Map(), co = new Map(), mid = new Set();
+    let ride = false;
+    for (const { r: q, k } of plan.route) {
+      if (q === r) { if (k === "P") { ride = true; for (const [id, x] of on) co.set(id, x); } else break; continue; }
+      if (k === "P") { on.set(q.id, q.pax || 1); if (ride) co.set(q.id, q.pax || 1); }
+      else on.delete(q.id);
+      if (ride) { const sid = D.ids[k === "P" ? q.pi : q.di]; if (sid !== r.p && sid !== r.d) mid.add(sid); }
+    }
+    let pax = 0; for (const v of co.values()) pax += v;
+    return pax ? { pax, stops: mid.size } : null;
+  }
   // まとまりごとに 2 つまで（種類が重ならないように）、短い順
   function pick(cands) {
     const out = [];

@@ -238,15 +238,13 @@ function renderChart() {
 // ------------------------------------------------------------------ サンプルの探索条件（見どころの違う結果が出る組み合わせ）
 // 1 から順に複雑になる: 同じ地区で行きはまっすぐ・帰りに寄り道 → 同じ地区で行きも寄り道 → 電車に乗り継ぐ → 電車・駅のまわりで寄り道 → 境目のバス停からタクシー
 const SAMPLES = [
-  { stop: "435", hosp: "1121105452200", date: "20260701", T: 10 * 3600, dur: 3600 },   // 伊佐沼新町自治会館前 → グリーンパーククリニック（地区1）。行きはまっすぐ、帰りに寄り道
-  { stop: "442", hosp: "1121105560000", date: "20260701", T: 10 * 3600, dur: 3600 },   // 菅間中公民館 → 山辺クリニック（地区1）
-  { stop: "403", hosp: "1111105386000", date: "20260701", T: 10 * 3600, dur: 3600 },   // 川越今泉郵便局（地区1）→ 関本記念病院（地区2）
-  { stop: "002", hosp: "1121110122900", date: "20260701", T: 10 * 3600, dur: 3600 },   // エコスTAIRAYA川越霞ヶ関店（地区3）→ 新河岸腎クリニック（地区2）。東武東上線 1 本
-  { stop: "434", hosp: "1121101240400", date: "20260701", T: 10 * 3600, dur: 3600 },   // 杉下町公民館（地区1）→ 中島胃腸科医院（地区2）
+  { stop: "442", hosp: "1121105560000", date: "20260701", T: 10 * 3600, dur: 3600, note: "自宅と病院が同じ地区内" },        // 菅間中公民館 → 山辺クリニック（地区1）
+  { stop: "002", hosp: "1121110122900", date: "20260701", T: 10 * 3600, dur: 3600, note: "地区をまたいで移動する" },        // エコスTAIRAYA川越霞ヶ関店（地区3）→ 新河岸腎クリニック（地区2）。東武東上線 1 本
+  { stop: "434", hosp: "1121101240400", date: "20260701", T: 10 * 3600, dur: 3600, note: "公共交通以外の移動が必要" },      // 杉下町公民館（地区1）→ 中島胃腸科医院（地区2）。境目のバス停からタクシー
 ];
 function fillSamples() {
-  $("sample").innerHTML = `<option value="">えらばない（自分で入力する）</option>` +
-    SAMPLES.map((x, i) => `<option value="${i}">サンプル${i + 1}</option>`).join("");
+  $("sample").innerHTML = `<option value=""></option>` +
+    SAMPLES.map((x, i) => `<option value="${i}">サンプル${i + 1}：${x.note}</option>`).join("");
   $("sample").onchange = () => {
     const x = SAMPLES[+$("sample").value];
     if (!x || !$("sample").value) return;
@@ -448,8 +446,12 @@ function card(o, i, dir) {
       const g = mins(o.gap);
       if (go) {
         tag = g <= 10 ? `<span class="tag safe">ちょうど着く</span>` : `<span class="tag">${dur(o.gap)}早く着く</span>`;
-        ttl = g <= 10 ? `病院へまっすぐ` : `病院へまっすぐ。待合室で ${dur(o.gap)} 待つ`;
-        if (g > 10) note = `<p class="note">${breakIn(S.T - o.gap, S.T) || `${fmt(S.T)} にちょうど着く便は、ほかの予約で埋まっています。`}</p>`;
+        if (o.detour) tag += ` <span class="tag risk">乗り合いで遠回り</span>`;
+        ttl = o.early ? `早めの便で病院へ。待合室で ${dur(o.gap)} 待つ` : g <= 10 ? `病院へまっすぐ` : `病院へまっすぐ。待合室で ${dur(o.gap)} 待つ`;
+        const sh = o.steps[0].share;
+        if (o.detour && sh) note = `<p class="note">ほかの予約の人を${sh.stops ? `途中のバス停 ${sh.stops} か所で` : ""}乗せ降ろしするので、まっすぐ行くより ${dur(o.legs[0].extra)}ほど長く乗ります。</p>`;
+        else if (o.lateAlt) note = `<p class="note">${fmt(S.T)} にちょうど着く便は、乗り合いで遠回りします（下の候補）。</p>`;
+        else if (g > 10 && !o.early) note = `<p class="note">${breakIn(S.T - o.gap, S.T) || `${fmt(S.T)} にちょうど着く便は、ほかの予約で埋まっています。`}</p>`;
       } else {
         tag = `<span class="tag">すぐ帰る</span>` + risk;
         ttl = g <= 10 ? `終わってすぐ帰る` : `終わってすぐの便。乗り場で ${dur(o.gap)} 待つ`;
@@ -525,7 +527,7 @@ function routeItems(legs) {
         case "goal": node(s.place, { name: placeName(s.place), arr: s.t, type: s.place[0] === "h" ? "hosp" : "stop" }); break;
         case "board": node(s.stop, { name: stopName(s.stop), dep: s.t, tags: ["乗車"], type: "stop" }); board = s; break;
         case "alight":
-          items.push({ kind: "seg", mode: "bus", color, t0: board.t, t1: s.t, g: board.g, legName });
+          items.push({ kind: "seg", mode: "bus", color, t0: board.t, t1: s.t, g: board.g, legName, share: board.share });
           node(s.stop, { name: stopName(s.stop), arr: s.t, tags: [s.home ? "降車（家の近く）" : "降車"], type: s.home ? "home" : "stop" }); break;
         case "waitstop": if (s.sec > 5 * 60) node(s.stop, { name: stopName(s.stop), arr: s.t, type: "stop", subs: [`乗り場で ${dur(s.sec)} 待つ`] }); break;
         case "waithosp": if (s.sec > 5 * 60) node("h" + s.h, { name: medOf(s.h).name, dep: s.t + s.sec, type: "hosp", subs: [`病院で ${dur(s.sec)} 待つ`] }); break;
@@ -582,7 +584,7 @@ function rtRow(x, i, items) {
   if (x.kind === "seg") {
     if (x.mode === "bus") return `<div class="rt-seg bus"><div class="rt-t"></div><div class="rt-rail"><i style="background:${x.color}"></i></div>
       <div class="rt-body"><div class="rt-mode" style="color:${x.color}"><span class="ic ic-van"></span>デマンドバス かわまる ${esc(S.data.districts[x.g].name)}<span class="rt-leg" style="background:${x.color}">${x.legName}</span></div>
-      <div class="rt-mt">${fmt(x.t0)} 発 → ${fmt(x.t1)} 着（${mins(x.t1 - x.t0)}分）・予約して乗る</div></div></div>`;
+      <div class="rt-mt">${fmt(x.t0)} 発 → ${fmt(x.t1)} 着（${mins(x.t1 - x.t0)}分）</div>${x.share ? `<div class="rt-mt share"><span class="ic ic-account-group"></span>乗り合い: ほかに ${x.share.pax} 人が乗ります${x.share.stops ? `（途中で ${x.share.stops} か所のバス停に寄る）` : ""}</div>` : ""}</div></div>`;
     if (x.mode === "train") return `<div class="rt-seg train"><div class="rt-t"></div><div class="rt-rail"><i style="--c:${x.color}"></i></div>
       <div class="rt-body"><div class="rt-mode" style="color:${x.color}"><span class="ic ic-train"></span>${esc(x.s.lineName)} ${esc(x.s.ttype)}・${esc(x.s.dest)}行き</div>
       <div class="rt-mt">${fmt(x.t0)} 発 → ${fmt(x.t1)} 着（${mins(x.t1 - x.t0)}分）</div></div></div>`;
@@ -895,7 +897,7 @@ async function initMap() {
     c.getContext("2d").drawImage(img, 0, 0, 28, 28);
     return c.getContext("2d").getImageData(0, 0, 28, 28);
   })());
-  map.addSource("route", { type: "geojson", data: fc([]), lineMetrics: true });   // line-progress（線の上の位置）で光る帯を流す
+  map.addSource("route", { type: "geojson", data: fc([]) });
   const legColor = ["match", ["get", "leg"], "go", ME, "back", BACK, "#495057"];
   const isK = (k) => ["==", ["get", "kind"], k];
   map.addLayer({ id: "route-taxi", type: "line", source: "route", filter: isK("taxi"),
@@ -908,8 +910,6 @@ async function initMap() {
     layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#fff", "line-width": 13, "line-offset": ["match", ["get", "leg"], "back", 9, 0] } });
   map.addLayer({ id: "route-bus", type: "line", source: "route", filter: isK("bus"),
     layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": legColor, "line-width": 8, "line-offset": ["match", ["get", "leg"], "back", 9, 0] } });
-  map.addLayer({ id: "route-bus-pulse", type: "line", source: "route", filter: isK("bus"),
-    layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-width": 6, "line-offset": ["match", ["get", "leg"], "back", 9, 0], "line-gradient": "rgba(0,0,0,0)" } });
   map.addLayer({ id: "route-arrow", type: "symbol", source: "route", filter: isK("bus"),
     layout: { "symbol-placement": "line", "symbol-spacing": 54, "icon-image": "bus-arrow", "icon-size": 0.8, "icon-offset": ["match", ["get", "leg"], "back", ["literal", [0, 11.3]], ["literal", [0, 0]]],
       "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true } });
@@ -923,8 +923,6 @@ async function initMap() {
   const walkOff = ["match", ["get", "leg"], "back", 9, 3];
   map.addLayer({ id: "route-walk", type: "line", source: "route", filter: isK("walk"),
     layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": legColor, "line-width": 2, "line-opacity": 0.45, "line-offset": walkOff } });
-  map.addLayer({ id: "route-walk-pulse", type: "line", source: "route", filter: isK("walk"),
-    layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-width": 5, "line-offset": walkOff, "line-gradient": "rgba(0,0,0,0)" } });
   map.addLayer({ id: "route-walk-arrow", type: "symbol", source: "route", filter: isK("walk"),
     layout: { "symbol-placement": "line", "symbol-spacing": 14, "icon-image": ["concat", "walk-", ["get", "leg"]], "icon-size": 0.75,
       "icon-offset": ["match", ["get", "leg"], "back", ["literal", [0, 12]], ["literal", [0, 4]]],
@@ -966,33 +964,15 @@ async function initMap() {
     map.on("mouseleave", l, () => map.getCanvas().style.cursor = "");
   }
 
-  // 進む向きに動かす: 電車の白い破線・タクシーの破線（破線をずらす）、かわまると歩き（光る帯を流す）
+  // 進む向きに動かす: 電車の白い破線・タクシーの破線（破線をずらす）。かわまると歩きは動かさない
   const N = 16;
   const TIES = Array.from({ length: N }, (_, i) => { const f = (i / N) * 4; return f < 2 ? [0, f, 2, 2 - f] : [f - 2, 2, 4 - f, 0]; });
   let k = -1;
   // タクシー: 長い破線（3, 1.6）をずらしていく
   const TAXI = Array.from({ length: N }, (_, i) => { const L = 4.6, f = (i / N) * L; return f < 1.6 ? [0, f, 3, 1.6 - f] : [f - 1.6, 1.6, L - f, 0]; });
-  // かわまる・歩き: 線の始まり（0）から終わり（1）へ、光る帯を 3 本ずつ流す
-  const pulse = (t, rgb, a, w) => {
-    const stops = [];
-    for (let i = 0; i <= 60; i++) {
-      const x = i / 60;
-      let v = 0;
-      for (const c of [t, t + 1 / 3, t + 2 / 3]) { const d = Math.abs(((x - c) % 1 + 1.5) % 1 - 0.5); v = Math.max(v, 1 - d / w); }
-      stops.push(x, `rgba(${rgb},${(Math.max(0, v) * a).toFixed(3)})`);
-    }
-    return ["interpolate", ["linear"], ["line-progress"], ...stops];
-  };
-  let last = 0;
   const ants = (ts) => {
     const n = Math.floor(ts / 80) % N;
     if (n !== k) { k = n; map.setPaintProperty("route-ties", "line-dasharray", TIES[n]); map.setPaintProperty("route-taxi", "line-dasharray", TAXI[n]); }
-    if (ts - last > 60 && map.getSource("route")._data.features.length) {
-      last = ts;
-      const t = (ts / 4000) % 1;
-      map.setPaintProperty("route-bus-pulse", "line-gradient", pulse(t, "255,255,255", 0.9, 0.06));
-      map.setPaintProperty("route-walk-pulse", "line-gradient", pulse((ts / 3000) % 1, "33,37,41", 0.55, 0.07));
-    }
     requestAnimationFrame(ants);
   };
   requestAnimationFrame(ants);

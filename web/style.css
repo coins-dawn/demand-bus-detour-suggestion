@@ -324,3 +324,6 @@ form select:invalid, form select.empty { color: #868e96; }
 .empty-res p { font-size: 15px; font-weight: 700; color: var(--brand-dark); margin: 10px 0 6px; }
 .empty-res .sub { font-size: 12px; font-weight: 400; color: var(--sub); line-height: 1.7; }
 .stepper[hidden] { display: none; }
+.ic-account-group { --m: url(icons/account-group.svg); }
+.rt-mt.share { color: #9c4a00; display: flex; gap: 4px; align-items: center; }
+.rt-mt.share .ic { width: 15px; height: 15px; }
